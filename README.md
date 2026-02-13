@@ -1,6 +1,3 @@
-Aquí tienes la documentación de tu API organizada en un formato **Markdown** limpio, profesional y fácil de leer. Este formato es ideal para el archivo `README.md` de tu repositorio en GitHub, para que tus otros 2 devs tengan la referencia a la mano.
-
----
 
 # 🎓 Intranet CEC API - Documentación
 
