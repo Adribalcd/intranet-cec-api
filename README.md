@@ -72,11 +72,6 @@ La API utiliza **JSON Web Tokens (JWT)**.
 * **Hosting:** Render
 
 ---
-¡Perfecto! Eso completa el círculo. Con ese `seed.js` ya tienes un **entorno de desarrollo profesional**.
-
-Aquí tienes el resumen final de lo que esto significa para tu equipo de 3 desarrolladores, formateado para que lo guardes en tu documentación:
-
----
 
 ## 🏗️ Carga de Datos de Prueba (Seeding)
 
