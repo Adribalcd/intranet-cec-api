@@ -72,4 +72,39 @@ La API utiliza **JSON Web Tokens (JWT)**.
 * **Hosting:** Render
 
 ---
+¡Perfecto! Eso completa el círculo. Con ese `seed.js` ya tienes un **entorno de desarrollo profesional**.
+
+Aquí tienes el resumen final de lo que esto significa para tu equipo de 3 desarrolladores, formateado para que lo guardes en tu documentación:
+
+---
+
+## 🏗️ Carga de Datos de Prueba (Seeding)
+
+Para poblar la base de datos en **TiDB Cloud** con datos consistentes, utiliza el script de semilla. Este proceso asegura que todos los desarrolladores utilicen el mismo set de datos para pruebas de frontend y backend.
+
+### Ejecución
+
+En la terminal del proyecto, ejecuta:
+
+```bash
+npm run seed
+
+```
+
+### 📊 Datos Generados automáticamente
+
+| Categoría | Detalle de los Datos | Credenciales |
+| --- | --- | --- |
+| **Admin** | 1 Usuario maestro | `admin` / `123456` |
+| **Alumnos** | 5 Alumnos (70001234 al 70007890) | Código / `123456` |
+| **Académico** | 2 Ciclos (2026-I, 2025-II) y 5 Cursos | Matemáticas, Física, etc. |
+| **Contenido** | 9 Horarios, 7 PDFs de materiales | --- |
+| **Evaluación** | 3 Exámenes y 13 Notas con **Orden de Mérito** | --- |
+| **Asistencia** | 30 Registros (Incluye 1 día inhabilitado) | --- |
+
+> [!CAUTION]
+> **ADVERTENCIA:** El script utiliza `sync({ force: true })`. Esto **BORRARÁ TODA LA INFORMACIÓN ACTUAL** de las tablas antes de crearlas. **No lo uses en producción** (Render) una vez que el cliente empiece a cargar datos reales.
+
+---
+
 
