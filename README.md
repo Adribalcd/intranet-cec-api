@@ -1,134 +1,78 @@
-# intranet-cec-api
+Aquí tienes la documentación de tu API organizada en un formato **Markdown** limpio, profesional y fácil de leer. Este formato es ideal para el archivo `README.md` de tu repositorio en GitHub, para que tus otros 2 devs tengan la referencia a la mano.
 
-  METODOS IMPLEMENTADOS:
+---
 
-  Alumno (/api/alumno)
+# 🎓 Intranet CEC API - Documentación
 
-  Método: POST
-  Endpoint: /api/alumno/login
-  Auth: No
-  Descripción: Login con { usuario, contrasena }
-  ────────────────────────────────────────
-  Método: GET
-  Endpoint: /api/alumno/perfil
-  Auth: Bearer
-  Descripción: Datos del alumno (nombres, apellidos, ciclo, fotoUrl)
-  ────────────────────────────────────────
-  Método: GET
-  Endpoint: /api/alumno/horario
-  Auth: Bearer
-  Descripción: Horario de cursos [{ curso, dia, hora }]
-  ────────────────────────────────────────
-  Método: GET
-  Endpoint: /api/alumno/asistencia
-  Auth: Bearer
-  Descripción: Registros de asistencia [{ fecha, estado, hora, observaciones }]
-  ────────────────────────────────────────
-  Método: GET
-  Endpoint: /api/alumno/calificaciones
-  Auth: Bearer
-  Descripción: Notas con mérito [{ fecha, nota, puesto, tipo }]
-  ────────────────────────────────────────
-  Método: GET
-  Endpoint: /api/alumno/cursos
-  Auth: Bearer
-  Descripción: Cursos matriculados [{ idCurso, nombreCurso, ciclo }]
-  ────────────────────────────────────────
-  Método: GET
-  Endpoint: /api/alumno/cursos/:idCurso/materiales?semana=X
-  Auth: Bearer
-  Descripción: Materiales por curso y semana
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/alumno/logout
-  Auth: Bearer
-  Descripción: Cierra sesión (invalida token)
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/alumno/recuperar-password
-  Auth: No
-  Descripción: Solicita reset con { email }
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/alumno/reset-password
-  Auth: No
-  Descripción: Cambia contraseña con { token, nuevaContrasena, confirmarContrasena }
+Documentación de los endpoints para el sistema de intranet de la academia **CEC Camargo**. El backend está preparado para conectarse con **TiDB Cloud** y desplegarse en **Render**.
 
-  Admin (/api/admin)
+## 🛡️ Autenticación
 
-  Método: POST
-  Endpoint: /api/admin/login
-  Auth: No
-  Descripción: Login admin con { usuario, contrasena }
-  ────────────────────────────────────────
-  Método: GET
-  Endpoint: /api/admin/ciclos
-  Auth: Bearer
-  Descripción: Listar ciclos
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/admin/ciclos
-  Auth: Bearer
-  Descripción: Crear ciclo { nombre, fechaInicio, duracion, fechaFin? }
-  ────────────────────────────────────────
-  Método: PUT
-  Endpoint: /api/admin/ciclos/:id
-  Auth: Bearer
-  Descripción: Actualizar ciclo
-  ────────────────────────────────────────
-  Método: DELETE
-  Endpoint: /api/admin/ciclos/:id
-  Auth: Bearer
-  Descripción: Eliminar ciclo
-  ────────────────────────────────────────
-  Método: GET
-  Endpoint: /api/admin/cursos
-  Auth: Bearer
-  Descripción: Listar cursos
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/admin/cursos
-  Auth: Bearer
-  Descripción: Crear curso { nombre, profesor, cicloId }
-  ────────────────────────────────────────
-  Método: PUT
-  Endpoint: /api/admin/cursos/:id
-  Auth: Bearer
-  Descripción: Actualizar curso
-  ────────────────────────────────────────
-  Método: DELETE
-  Endpoint: /api/admin/cursos/:id
-  Auth: Bearer
-  Descripción: Eliminar curso
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/admin/matricula/manual
-  Auth: Bearer
-  Descripción: Matrícula individual { alumnoId, cursoId, cicloId }
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/admin/matricula/masiva
-  Auth: Bearer
-  Descripción: Matrícula masiva { registros: [...] }
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/admin/asistencia
-  Auth: Bearer
-  Descripción: Registrar asistencia por { dni }
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/admin/asistencia/inhabilitar-dia
-  Auth: Bearer
-  Descripción: Inhabilitar día { cicloId, fecha }
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/admin/examen
-  Auth: Bearer
-  Descripción: Crear examen { cicloId, semana, tipoExamen, fecha }
-  ────────────────────────────────────────
-  Método: POST
-  Endpoint: /api/admin/examen/:examenId/calificaciones
-  Auth: Bearer
-  Descripción: Registrar notas [{ alumnoId, nota }] + orden de mérito
+La API utiliza **JSON Web Tokens (JWT)**.
 
-  Total: 25 endpoints (10 alumno + 15 admin)
+* Los endpoints marcados con `Auth: Bearer` requieren el header:
+`Authorization: Bearer <tu_token>`
+
+---
+
+## 👨‍🎓 Módulo: Alumno (`/api/alumno`)
+
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **POST** | `/login` | No | Login con `{ usuario, contrasena }`. Devuelve el JWT. |
+| **GET** | `/perfil` | **Sí** | Datos del alumno (nombres, apellidos, ciclo, fotoUrl). |
+| **GET** | `/horario` | **Sí** | Lista de cursos: `[{ curso, dia, hora }]`. |
+| **GET** | `/asistencia` | **Sí** | Historial: `[{ fecha, estado, hora, observaciones }]`. |
+| **GET** | `/calificaciones` | **Sí** | Notas con mérito: `[{ fecha, nota, puesto, tipo }]`. |
+| **GET** | `/cursos` | **Sí** | Cursos matriculados: `[{ idCurso, nombreCurso, ciclo }]`. |
+| **GET** | `/cursos/:id/materiales` | **Sí** | Materiales por curso y semana (`?semana=X`). |
+| **POST** | `/logout` | **Sí** | Cierra la sesión (invalida el token actual). |
+| **POST** | `/recuperar-password` | No | Solicita reset enviando `{ email }`. |
+| **POST** | `/reset-password` | No | Cambia clave con `{ token, nuevaContrasena, confirmar }`. |
+
+---
+
+## 🔑 Módulo: Admin (`/api/admin`)
+
+### 📦 Gestión de Ciclos y Cursos
+
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **POST** | `/login` | No | Login administrativo con `{ usuario, contrasena }`. |
+| **GET** | `/ciclos` | **Sí** | Lista todos los ciclos académicos. |
+| **POST** | `/ciclos` | **Sí** | Crear ciclo `{ nombre, fechaInicio, duracion, fechaFin? }`. |
+| **PUT** | `/ciclos/:id` | **Sí** | Actualizar datos de un ciclo existente. |
+| **DELETE** | `/ciclos/:id` | **Sí** | Eliminar un ciclo. |
+| **GET** | `/cursos` | **Sí** | Listar todos los cursos disponibles. |
+| **POST** | `/cursos` | **Sí** | Crear curso `{ nombre, profesor, cicloId }`. |
+| **PUT** | `/cursos/:id` | **Sí** | Actualizar información del curso. |
+| **DELETE** | `/cursos/:id` | **Sí** | Eliminar un curso. |
+
+### 📝 Matrícula y Asistencia
+
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **POST** | `/matricula/manual` | **Sí** | Matrícula individual `{ alumnoId, cursoId, cicloId }`. |
+| **POST** | `/matricula/masiva` | **Sí** | Matrícula masiva mediante un array de registros. |
+| **POST** | `/asistencia` | **Sí** | Registrar asistencia rápida mediante `{ dni }`. |
+| **POST** | `/asistencia/inhabilitar` | **Sí** | Inhabilitar día por feriado o evento `{ cicloId, fecha }`. |
+
+### 📊 Exámenes y Notas
+
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **POST** | `/examen` | **Sí** | Crear examen `{ cicloId, semana, tipoExamen, fecha }`. |
+| **POST** | `/examen/:id/calificaciones` | **Sí** | Registrar notas `[{ alumnoId, nota }]` + cálculo automático de mérito. |
+
+---
+
+## 🚀 Resumen de Implementación
+
+* **Total de Endpoints:** 25
+* **Endpoints Alumno:** 10
+* **Endpoints Admin:** 15
+* **Base de Datos:** TiDB Cloud (MySQL compatible)
+* **Hosting:** Render
+
+---
+
