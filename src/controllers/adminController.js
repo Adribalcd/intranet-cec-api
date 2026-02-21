@@ -7,6 +7,15 @@ const { Admin, Ciclo, Curso, Matricula, Alumno, Asistencia, Examen, Nota } = req
 const { generarToken } = require('../utils/tokenUtils');
 const { Op } = require('sequelize');
 
+// URL base del backend (para construir URLs de fotos accesibles desde el frontend)
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+
+function buildFotoUrl(fotoUrl) {
+  if (!fotoUrl) return null;
+  if (fotoUrl.startsWith('http')) return fotoUrl;
+  return `${BASE_URL}${fotoUrl}`;
+}
+
 // Configuración de multer para fotos
 const storageFotos = multer.diskStorage({
   destination: path.join(__dirname, '..', 'uploads', 'fotos'),
@@ -359,7 +368,11 @@ exports.getAlumnoByCodigo = async (req, res) => {
       include: [{ model: Matricula, include: [Ciclo] }],
     });
     if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
-    res.json(alumno);
+
+    const data = alumno.toJSON();
+    data.foto_url = buildFotoUrl(data.foto_url);
+
+    res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -377,10 +390,10 @@ exports.subirFotoAlumno = async (req, res) => {
 
     if (!req.file) return res.status(400).json({ error: 'No se envió ninguna imagen' });
 
-    const fotoUrl = `/uploads/fotos/${req.file.filename}`;
-    await alumno.update({ foto_url: fotoUrl });
+    const fotoPath = `/uploads/fotos/${req.file.filename}`;
+    await alumno.update({ foto_url: fotoPath });
 
-    res.json({ ok: true, foto_url: fotoUrl });
+    res.json({ ok: true, foto_url: buildFotoUrl(fotoPath) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -407,10 +420,13 @@ exports.alumnosCicloVigente = async (req, res) => {
       }],
     });
 
-    res.json({
-      ciclo,
-      alumnos: matriculas.map((m) => m.Alumno),
+    const alumnos = matriculas.map((m) => {
+      const a = m.Alumno.toJSON();
+      a.foto_url = buildFotoUrl(a.foto_url);
+      return a;
     });
+
+    res.json({ ciclo, alumnos });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
