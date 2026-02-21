@@ -1,11 +1,12 @@
-# intranet-cec-api
 
-API Backend para la Intranet del CEC Camargo. Sistema de gestión académica con matrícula por ciclo, control de asistencia, calificaciones y más.
+# Intranet CEC API - Documentación
+
+API Backend para la Intranet del **CEC Camargo**. Sistema de gestión académica con matrícula por ciclo, control de asistencia, calificaciones y más. El backend está preparado para conectarse con **TiDB Cloud** y desplegarse en **Render**.
 
 ## Tecnologías
 
 - **Node.js** + **Express 5**
-- **Sequelize 6** (ORM) + **MySQL**
+- **Sequelize 6** (ORM) + **MySQL** / TiDB Cloud
 - **JWT** para autenticación
 - **Multer** para subida de archivos (fotos, Excel)
 - **QRCode** para generación de códigos QR
@@ -77,79 +78,82 @@ src/
     └── tokenUtils.js         # Generación/validación JWT
 ```
 
-## Endpoints
+## Autenticación
 
-### Autenticación
+La API utiliza **JSON Web Tokens (JWT)**.
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| POST | `/api/admin/login` | Login admin (`{ usuario, contrasena }`) |
-| POST | `/api/alumno/login` | Login alumno (`{ usuario, contrasena }`) |
+* Los endpoints marcados con Auth requieren el header:
+  `Authorization: Bearer <tu_token>`
 
 ---
 
-### Admin — Ciclos
+## Módulo: Alumno (`/api/alumno`)
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/api/admin/ciclos` | Listar ciclos (incluye `duracion_meses` calculada) |
-| POST | `/api/admin/ciclos` | Crear ciclo (`{ nombre, fechaInicio, fechaFin }` o `{ nombre, fechaInicio, duracion }`) |
-| PUT | `/api/admin/ciclos/:id` | Actualizar ciclo |
-| DELETE | `/api/admin/ciclos/:id` | Eliminar ciclo |
-
----
-
-### Admin — Cursos
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/api/admin/cursos` | Listar cursos (incluye datos del ciclo) |
-| POST | `/api/admin/cursos` | Crear curso (`{ nombre, profesor, cicloId }`) |
-| PUT | `/api/admin/cursos/:id` | Actualizar curso |
-| DELETE | `/api/admin/cursos/:id` | Eliminar curso |
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **POST** | `/login` | No | Login con `{ usuario, contrasena }`. Devuelve el JWT. |
+| **GET** | `/perfil` | Si | Datos del alumno (nombres, apellidos, ciclo, fotoUrl). |
+| **GET** | `/horario` | Si | Lista de cursos: `[{ curso, dia, hora }]`. |
+| **GET** | `/asistencia` | Si | Historial: `[{ fecha, estado, hora, observaciones }]`. |
+| **GET** | `/calificaciones` | Si | Notas con mérito: `[{ fecha, nota, puesto, tipo }]`. |
+| **GET** | `/cursos` | Si | Cursos matriculados: `[{ idCurso, nombreCurso, ciclo }]`. |
+| **GET** | `/cursos/:id/materiales` | Si | Materiales por curso y semana (`?semana=X`). |
+| **POST** | `/logout` | Si | Cierra la sesión (invalida el token actual). |
+| **POST** | `/recuperar-password` | No | Solicita reset enviando `{ email }`. |
+| **POST** | `/reset-password` | No | Cambia clave con `{ token, nuevaContrasena, confirmar }`. |
 
 ---
 
-### Admin — Matrícula (por ciclo)
+## Módulo: Admin (`/api/admin`)
+
+### Gestión de Ciclos y Cursos
+
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **POST** | `/login` | No | Login administrativo con `{ usuario, contrasena }`. |
+| **GET** | `/ciclos` | Si | Lista todos los ciclos académicos (incluye `duracion_meses` calculada). |
+| **POST** | `/ciclos` | Si | Crear ciclo `{ nombre, fechaInicio, duracion, fechaFin? }`. |
+| **PUT** | `/ciclos/:id` | Si | Actualizar datos de un ciclo existente. |
+| **DELETE** | `/ciclos/:id` | Si | Eliminar un ciclo. |
+| **GET** | `/cursos` | Si | Listar todos los cursos disponibles (incluye datos del ciclo). |
+| **POST** | `/cursos` | Si | Crear curso `{ nombre, profesor, cicloId }`. |
+| **PUT** | `/cursos/:id` | Si | Actualizar información del curso. |
+| **DELETE** | `/cursos/:id` | Si | Eliminar un curso. |
+
+### Matrícula (por ciclo)
 
 La matrícula es por **ciclo**, no por curso. Se usa el **código del alumno** en lugar del ID.
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| POST | `/api/admin/matricula/manual` | Matricular un alumno (`{ codigoAlumno, cicloId }`) |
-| POST | `/api/admin/matricula/masiva` | Matrícula masiva (`{ registros: [{ codigoAlumno, cicloId }] }`) |
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **POST** | `/matricula/manual` | Si | Matrícula individual `{ codigoAlumno, cicloId }`. |
+| **POST** | `/matricula/masiva` | Si | Matrícula masiva `{ registros: [{ codigoAlumno, cicloId }] }`. |
 
----
+### Alumnos
 
-### Admin — Alumnos
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **GET** | `/alumno/:codigo` | Si | Obtener datos del alumno por código (incluye matrículas y ciclos). |
+| **POST** | `/alumno/:codigo/foto` | Si | Subir foto del alumno (form-data, campo `foto`, max 5MB, jpg/png/webp). |
+| **GET** | `/alumno/:codigo/qr` | Si | Descargar QR del alumno como imagen PNG. |
+| **GET** | `/ciclo-vigente/alumnos` | Si | Listar alumnos matriculados en el ciclo vigente. |
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/api/admin/alumno/:codigo` | Obtener datos del alumno por código (incluye matrículas y ciclos) |
-| POST | `/api/admin/alumno/:codigo/foto` | Subir foto del alumno (form-data, campo `foto`, max 5MB, jpg/png/webp) |
-| GET | `/api/admin/alumno/:codigo/qr` | Descargar QR del alumno como imagen PNG |
-| GET | `/api/admin/ciclo-vigente/alumnos` | Listar alumnos matriculados en el ciclo vigente |
+### Asistencia
 
----
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **POST** | `/asistencia` | Si | Registrar asistencia rápida mediante `{ dni }`. |
+| **POST** | `/asistencia/inhabilitar-dia` | Si | Inhabilitar día por feriado o evento `{ cicloId, fecha }`. |
+| **GET** | `/asistencia/listado` | Si | Listado de asistencia por día y ciclo (`?cicloId=X&fecha=YYYY-MM-DD`). |
 
-### Admin — Asistencia
+### Exámenes y Calificaciones
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| POST | `/api/admin/asistencia` | Registrar asistencia por código (`{ dni }`) |
-| POST | `/api/admin/asistencia/inhabilitar-dia` | Inhabilitar día completo (`{ cicloId, fecha }`) |
-| GET | `/api/admin/asistencia/listado` | Listado de asistencia por día y ciclo (`?cicloId=X&fecha=YYYY-MM-DD`) |
-
----
-
-### Admin — Exámenes y Calificaciones
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| POST | `/api/admin/examen` | Crear examen (`{ cicloId, semana, tipoExamen, fecha }`) |
-| POST | `/api/admin/examen/:examenId/calificaciones` | Registrar notas (`[{ codigoAlumno, nota }]`) — calcula puestos automáticamente |
-| GET | `/api/admin/examen/:examenId/plantilla-notas` | Descargar plantilla Excel con alumnos matriculados (CODIGO, NOMBRE_COMPLETO, NOTA) |
-| POST | `/api/admin/examen/:examenId/notas-excel` | Subir Excel con notas (form-data, campo `archivo`, .xlsx) — calcula puestos automáticamente |
+| Método | Endpoint | Auth | Descripción |
+| --- | --- | --- | --- |
+| **POST** | `/examen` | Si | Crear examen `{ cicloId, semana, tipoExamen, fecha }`. |
+| **POST** | `/examen/:examenId/calificaciones` | Si | Registrar notas `[{ codigoAlumno, nota }]` + cálculo automático de mérito. |
+| **GET** | `/examen/:examenId/plantilla-notas` | Si | Descargar plantilla Excel con alumnos matriculados (CODIGO, NOMBRE_COMPLETO, NOTA). |
+| **POST** | `/examen/:examenId/notas-excel` | Si | Subir Excel con notas (form-data, campo `archivo`, .xlsx) + cálculo automático de mérito. |
 
 #### Flujo de registro masivo de notas con Excel
 
@@ -159,19 +163,13 @@ La matrícula es por **ciclo**, no por curso. Se usa el **código del alumno** e
 
 ---
 
-### Alumno (requiere token de alumno)
+## Resumen de Implementación
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/api/alumno/perfil` | Perfil del alumno (nombre, foto, ciclo) |
-| GET | `/api/alumno/horario` | Horario de clases |
-| GET | `/api/alumno/asistencia` | Historial de asistencia |
-| GET | `/api/alumno/calificaciones` | Calificaciones con datos del examen |
-| GET | `/api/alumno/cursos` | Cursos matriculados |
-| GET | `/api/alumno/cursos/:idCurso/materiales` | Materiales del curso (filtro opcional `?semana=X`) |
-| POST | `/api/alumno/logout` | Cerrar sesión |
-| POST | `/api/alumno/recuperar-password` | Recuperar contraseña |
-| POST | `/api/alumno/reset-password` | Restablecer contraseña |
+* **Total de Endpoints:** 32
+* **Endpoints Alumno:** 10
+* **Endpoints Admin:** 22
+* **Base de Datos:** TiDB Cloud (MySQL compatible)
+* **Hosting:** Render
 
 ---
 
@@ -192,6 +190,36 @@ Alumno (1) ──→ (N) Matricula
 
 Examen (1) ──→ (N) Nota
 ```
+
+---
+
+## Carga de Datos de Prueba (Seeding)
+
+Para poblar la base de datos en **TiDB Cloud** con datos consistentes, utiliza el script de semilla. Este proceso asegura que todos los desarrolladores utilicen el mismo set de datos para pruebas de frontend y backend.
+
+### Ejecución
+
+En la terminal del proyecto, ejecuta:
+
+```bash
+npm run seed
+```
+
+### Datos Generados automáticamente
+
+| Categoría | Detalle de los Datos | Credenciales |
+| --- | --- | --- |
+| **Admin** | 1 Usuario maestro | `admin` / `123456` |
+| **Alumnos** | 5 Alumnos (70001234 al 70007890) | Código / `123456` |
+| **Académico** | 2 Ciclos (2026-I, 2025-II) y 5 Cursos | Matemáticas, Física, etc. |
+| **Contenido** | 9 Horarios, 7 PDFs de materiales | --- |
+| **Evaluación** | 3 Exámenes y 13 Notas con **Orden de Mérito** | --- |
+| **Asistencia** | 30 Registros (Incluye 1 día inhabilitado) | --- |
+
+> [!CAUTION]
+> **ADVERTENCIA:** El script utiliza `sync({ force: true })`. Esto **BORRARÁ TODA LA INFORMACIÓN ACTUAL** de las tablas antes de crearlas. **No lo uses en producción** (Render) una vez que el cliente empiece a cargar datos reales.
+
+---
 
 ## Notas importantes
 
