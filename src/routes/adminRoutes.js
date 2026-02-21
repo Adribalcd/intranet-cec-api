@@ -31,4 +31,25 @@ router.post('/asistencia/inhabilitar-dia', auth('admin'), adminCtrl.inhabilitarD
 router.post('/examen', auth('admin'), adminCtrl.crearExamen);
 router.post('/examen/:examenId/calificaciones', auth('admin'), adminCtrl.registrarCalificaciones);
 
+// Consultar alumno por código
+router.get('/alumno/:codigo', auth('admin'), adminCtrl.getAlumnoByCodigo);
+
+// Subir foto de alumno
+router.post('/alumno/:codigo/foto', auth('admin'), adminCtrl.uploadFotoMiddleware, adminCtrl.subirFotoAlumno);
+
+// Alumnos matriculados en ciclo vigente
+router.get('/ciclo-vigente/alumnos', auth('admin'), adminCtrl.alumnosCicloVigente);
+
+// Descargar QR del alumno
+router.get('/alumno/:codigo/qr', auth('admin'), adminCtrl.descargarQR);
+
+// Listado de asistencia por día y ciclo
+router.get('/asistencia/listado', auth('admin'), adminCtrl.listadoAsistencia);
+
+// Descargar plantilla Excel de notas
+router.get('/examen/:examenId/plantilla-notas', auth('admin'), adminCtrl.descargarPlantillaNotas);
+
+// Subir Excel con notas
+router.post('/examen/:examenId/notas-excel', auth('admin'), adminCtrl.uploadExcelMiddleware, adminCtrl.subirNotasExcel);
+
 module.exports = router;
