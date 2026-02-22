@@ -194,6 +194,39 @@ exports.deleteCurso = async (req, res) => {
   }
 };
 
+// ===================== REGISTRO DE ALUMNO =====================
+
+exports.registrarAlumno = async (req, res) => {
+  try {
+    const { codigo, nombres, apellidos, email, contrasena, celular } = req.body;
+
+    if (!codigo || !nombres || !apellidos || !email || !contrasena) {
+      return res.status(400).json({ error: 'Campos obligatorios: codigo, nombres, apellidos, email, contrasena' });
+    }
+
+    const existente = await Alumno.findOne({ where: { [Op.or]: [{ codigo }, { email_alumno: email }] } });
+    if (existente) {
+      return res.status(409).json({ error: 'Ya existe un alumno con ese código o email' });
+    }
+
+    const hash = await bcrypt.hash(contrasena, 10);
+
+    const alumno = await Alumno.create({
+      codigo,
+      nombres,
+      apellidos,
+      email_alumno: email,
+      contrasena: hash,
+      celular: celular || null,
+    });
+
+    const { contrasena: _, ...data } = alumno.toJSON();
+    res.status(201).json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // ===================== MATRÍCULA =====================
 
 exports.matriculaManual = async (req, res) => {
@@ -202,6 +235,19 @@ exports.matriculaManual = async (req, res) => {
 
     const alumno = await Alumno.findOne({ where: { codigo: codigoAlumno } });
     if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+
+    // Verificar si ya tiene matrícula en un ciclo vigente
+    const hoy = new Date();
+    const matriculaActiva = await Matricula.findOne({
+      where: { alumno_id: alumno.id },
+      include: [{
+        model: Ciclo,
+        where: { fecha_inicio: { [Op.lte]: hoy }, fecha_fin: { [Op.gte]: hoy } },
+      }],
+    });
+    if (matriculaActiva) {
+      return res.status(409).json({ error: `El alumno ya tiene matrícula activa en el ciclo "${matriculaActiva.Ciclo.nombres}"` });
+    }
 
     const matricula = await Matricula.create({
       alumno_id: alumno.id,
@@ -229,17 +275,73 @@ exports.matriculaMasiva = async (req, res) => {
     const alumnoMap = {};
     alumnos.forEach((a) => { alumnoMap[a.codigo] = a.id; });
 
+    // Filtrar alumnos que ya tienen matrícula activa en un ciclo vigente
+    const hoy = new Date();
+    const alumnoIds = Object.values(alumnoMap);
+    const matriculasActivas = await Matricula.findAll({
+      where: { alumno_id: { [Op.in]: alumnoIds } },
+      include: [{
+        model: Ciclo,
+        where: { fecha_inicio: { [Op.lte]: hoy }, fecha_fin: { [Op.gte]: hoy } },
+      }],
+    });
+    const idsConMatriculaActiva = new Set(matriculasActivas.map((m) => m.alumno_id));
+
     const datos = registros
-      .filter((r) => alumnoMap[r.codigoAlumno])
+      .filter((r) => alumnoMap[r.codigoAlumno] && !idsConMatriculaActiva.has(alumnoMap[r.codigoAlumno]))
       .map((r) => ({
         alumno_id: alumnoMap[r.codigoAlumno],
         ciclo_id: r.cicloId,
         fecha_registro: new Date(),
       }));
 
+    const omitidos = registros.length - datos.length;
     const matriculas = await Matricula.bulkCreate(datos);
 
-    res.status(201).json({ ok: true, cantidad: matriculas.length });
+    res.status(201).json({ ok: true, cantidad: matriculas.length, omitidos });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== CAMBIAR CICLO DE ALUMNO =====================
+
+exports.cambiarCicloAlumno = async (req, res) => {
+  try {
+    const { codigoAlumno, cicloIdAnterior, cicloIdNuevo } = req.body;
+
+    if (!codigoAlumno || !cicloIdNuevo) {
+      return res.status(400).json({ error: 'Se requiere codigoAlumno y cicloIdNuevo' });
+    }
+
+    const alumno = await Alumno.findOne({ where: { codigo: codigoAlumno } });
+    if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+
+    const cicloNuevo = await Ciclo.findByPk(cicloIdNuevo);
+    if (!cicloNuevo) return res.status(404).json({ error: 'Ciclo destino no encontrado' });
+
+    // Si se indica ciclo anterior, desactivar esa matrícula específica
+    if (cicloIdAnterior) {
+      await Matricula.destroy({
+        where: { alumno_id: alumno.id, ciclo_id: cicloIdAnterior },
+      });
+    }
+
+    // Verificar si ya está matriculado en el ciclo nuevo
+    const yaExiste = await Matricula.findOne({
+      where: { alumno_id: alumno.id, ciclo_id: cicloIdNuevo },
+    });
+    if (yaExiste) {
+      return res.status(409).json({ error: 'El alumno ya está matriculado en el ciclo destino' });
+    }
+
+    const matricula = await Matricula.create({
+      alumno_id: alumno.id,
+      ciclo_id: cicloIdNuevo,
+      fecha_registro: new Date(),
+    });
+
+    res.status(201).json(matricula);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

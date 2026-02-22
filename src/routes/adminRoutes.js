@@ -19,9 +19,13 @@ router.post('/cursos', auth('admin'), adminCtrl.createCurso);
 router.put('/cursos/:id', auth('admin'), adminCtrl.updateCurso);
 router.delete('/cursos/:id', auth('admin'), adminCtrl.deleteCurso);
 
+// Registro de alumno
+router.post('/alumno/registrar', auth('admin'), adminCtrl.registrarAlumno);
+
 // Matrícula
 router.post('/matricula/manual', auth('admin'), adminCtrl.matriculaManual);
 router.post('/matricula/masiva', auth('admin'), adminCtrl.matriculaMasiva);
+router.post('/matricula/cambiar-ciclo', auth('admin'), adminCtrl.cambiarCicloAlumno);
 
 // Asistencia
 router.post('/asistencia', auth('admin'), adminCtrl.registrarAsistencia);
