@@ -31,6 +31,15 @@ router.post('/matricula/cambiar-ciclo', auth('admin'), adminCtrl.cambiarCicloAlu
 router.post('/asistencia', auth('admin'), adminCtrl.registrarAsistencia);
 router.post('/asistencia/inhabilitar-dia', auth('admin'), adminCtrl.inhabilitarDia);
 
+// Horarios de cursos
+router.get('/horario', auth('admin'), adminCtrl.getHorarios);
+router.post('/horario', auth('admin'), adminCtrl.createHorario);
+router.put('/horario/:id', auth('admin'), adminCtrl.updateHorario);
+router.delete('/horario/:id', auth('admin'), adminCtrl.deleteHorario);
+
+// Exámenes por ciclo
+router.get('/ciclos/:cicloId/examenes', auth('admin'), adminCtrl.getExamenesPorCiclo);
+
 // Exámenes y calificaciones
 router.post('/examen', auth('admin'), adminCtrl.crearExamen);
 router.post('/examen/:examenId/calificaciones', auth('admin'), adminCtrl.registrarCalificaciones);

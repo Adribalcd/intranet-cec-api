@@ -3,7 +3,7 @@ const path = require('path');
 const multer = require('multer');
 const QRCode = require('qrcode');
 const ExcelJS = require('exceljs');
-const { Admin, Ciclo, Curso, Matricula, Alumno, Asistencia, Examen, Nota } = require('../models');
+const { Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota } = require('../models');
 const { generarToken } = require('../utils/tokenUtils');
 const { Op } = require('sequelize');
 
@@ -406,16 +406,32 @@ exports.inhabilitarDia = async (req, res) => {
 
 exports.crearExamen = async (req, res) => {
   try {
-    const { cicloId, semana, tipoExamen, fecha } = req.body;
+    const { cicloId, semana, tipoExamen, fecha, cantidadPreguntas } = req.body;
 
     const examen = await Examen.create({
       ciclo_id: cicloId,
       semana,
       tipo_examen: tipoExamen,
       fecha,
+      cantidad_preguntas: cantidadPreguntas || null,
     });
 
-    res.status(201).json({ examenId: examen.id });
+    res.status(201).json(examen);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== EXÁMENES POR CICLO =====================
+
+exports.getExamenesPorCiclo = async (req, res) => {
+  try {
+    const { cicloId } = req.params;
+    const examenes = await Examen.findAll({
+      where: { ciclo_id: cicloId },
+      order: [['fecha', 'DESC']],
+    });
+    res.json(examenes);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -643,6 +659,90 @@ exports.descargarPlantillaNotas = async (req, res) => {
 
     await workbook.xlsx.write(res);
     res.end();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== HORARIO DE CURSOS (CRUD) =====================
+
+exports.getHorarios = async (req, res) => {
+  try {
+    const { cicloId } = req.query;
+    const cursoWhere = cicloId ? { ciclo_id: parseInt(cicloId) } : {};
+
+    const horarios = await HorarioCurso.findAll({
+      include: [{
+        model: Curso,
+        where: Object.keys(cursoWhere).length ? cursoWhere : undefined,
+        attributes: ['id', 'nombre', 'profesor', 'ciclo_id'],
+        include: [{ model: Ciclo, attributes: ['id', 'nombres'] }],
+      }],
+      order: [['dia_semana', 'ASC'], ['hora_inicio', 'ASC']],
+    });
+
+    res.json(horarios.map((h) => ({
+      id: h.id,
+      cursoId: h.curso_id,
+      cursoNombre: h.Curso?.nombre,
+      cicloId: h.Curso?.ciclo_id,
+      cicloNombre: h.Curso?.Ciclo?.nombres,
+      diaSemana: h.dia_semana,
+      horaInicio: h.hora_inicio,
+      horaFin: h.hora_fin,
+    })));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.createHorario = async (req, res) => {
+  try {
+    const { cursoId, diaSemana, horaInicio, horaFin } = req.body;
+    if (!cursoId || !diaSemana || !horaInicio || !horaFin) {
+      return res.status(400).json({ error: 'Se requiere cursoId, diaSemana, horaInicio, horaFin' });
+    }
+
+    const horario = await HorarioCurso.create({
+      curso_id: cursoId,
+      dia_semana: diaSemana,
+      hora_inicio: horaInicio,
+      hora_fin: horaFin,
+    });
+
+    res.status(201).json(horario);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.updateHorario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { diaSemana, horaInicio, horaFin } = req.body;
+
+    const horario = await HorarioCurso.findByPk(id);
+    if (!horario) return res.status(404).json({ error: 'Horario no encontrado' });
+
+    await horario.update({
+      dia_semana: diaSemana || horario.dia_semana,
+      hora_inicio: horaInicio || horario.hora_inicio,
+      hora_fin: horaFin || horario.hora_fin,
+    });
+
+    res.json(horario);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.deleteHorario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const horario = await HorarioCurso.findByPk(id);
+    if (!horario) return res.status(404).json({ error: 'Horario no encontrado' });
+    await horario.destroy();
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

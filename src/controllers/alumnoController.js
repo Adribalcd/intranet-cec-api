@@ -106,7 +106,7 @@ exports.calificaciones = async (req, res) => {
   try {
     const notas = await Nota.findAll({
       where: { alumno_id: req.usuario.id },
-      include: [{ model: Examen, attributes: ['fecha', 'tipo_examen', 'semana'] }],
+      include: [{ model: Examen, attributes: ['fecha', 'tipo_examen', 'semana', 'cantidad_preguntas'] }],
       order: [[Examen, 'fecha', 'DESC']],
     });
 
@@ -116,6 +116,8 @@ exports.calificaciones = async (req, res) => {
         nota: n.valor,
         puesto: n.puesto,
         tipo: n.Examen?.tipo_examen,
+        semana: n.Examen?.semana,
+        cantidadPreguntas: n.Examen?.cantidad_preguntas,
       }))
     );
   } catch (error) {
