@@ -13,6 +13,7 @@ router.get('/perfil', auth('alumno'), alumnoCtrl.perfil);
 router.get('/horario', auth('alumno'), alumnoCtrl.horario);
 router.get('/asistencia', auth('alumno'), alumnoCtrl.asistencia);
 router.get('/calificaciones', auth('alumno'), alumnoCtrl.calificaciones);
+router.get('/examenes/:examenId/ranking', auth('alumno'), alumnoCtrl.rankingSalon);
 router.get('/cursos', auth('alumno'), alumnoCtrl.cursos);
 router.get('/cursos/:idCurso/materiales', auth('alumno'), alumnoCtrl.materiales);
 router.post('/logout', auth('alumno'), alumnoCtrl.logout);

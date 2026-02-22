@@ -119,12 +119,13 @@ exports.calificaciones = async (req, res) => {
   try {
     const notas = await Nota.findAll({
       where: { alumno_id: req.usuario.id },
-      include: [{ model: Examen, attributes: ['fecha', 'tipo_examen', 'semana', 'cantidad_preguntas'] }],
+      include: [{ model: Examen, attributes: ['id', 'fecha', 'tipo_examen', 'semana', 'cantidad_preguntas'] }],
       order: [[Examen, 'semana', 'ASC']],
     });
 
     res.json(
       notas.map((n) => ({
+        examenId: n.examen_id,
         fecha: n.Examen?.fecha,
         nota: n.valor,
         puesto: n.puesto,
@@ -133,6 +134,57 @@ exports.calificaciones = async (req, res) => {
         cantidadPreguntas: n.Examen?.cantidad_preguntas,
       }))
     );
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// GET /api/alumno/examenes/:examenId/ranking
+exports.rankingSalon = async (req, res) => {
+  try {
+    const { examenId } = req.params;
+
+    // Verificar que este alumno participó en este examen
+    const miNota = await Nota.findOne({
+      where: { examen_id: examenId, alumno_id: req.usuario.id },
+    });
+    if (!miNota) return res.status(404).json({ error: 'No tienes nota en este examen' });
+
+    // Traer todas las notas del examen
+    const todas = await Nota.findAll({
+      where: { examen_id: examenId },
+      attributes: ['valor', 'puesto'],
+    });
+
+    const totalAlumnos = todas.length;
+
+    // Distribución por rangos
+    const rangos = [
+      { rango: '18–20', min: 18, max: 20 },
+      { rango: '14–17', min: 14, max: 17 },
+      { rango: '11–13', min: 11, max: 13 },
+      { rango: '7–10',  min: 7,  max: 10  },
+      { rango: '0–6',   min: 0,  max: 6   },
+    ];
+
+    const distribucion = rangos.map((r) => ({
+      rango: r.rango,
+      cantidad: todas.filter((n) => Number(n.valor) >= r.min && Number(n.valor) <= r.max).length,
+      incluye: Number(miNota.valor) >= r.min && Number(miNota.valor) <= r.max,
+    }));
+
+    // Percentil (qué porcentaje tiene nota MENOR que yo)
+    const menores = todas.filter((n) => Number(n.valor) < Number(miNota.valor)).length;
+    const percentil = Math.round((menores / totalAlumnos) * 100);
+
+    res.json({
+      examenId: parseInt(examenId),
+      totalAlumnos,
+      miPuesto: miNota.puesto,
+      miNota: Number(miNota.valor),
+      percentil,
+      distribucion,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
