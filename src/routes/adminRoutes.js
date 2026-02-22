@@ -26,10 +26,13 @@ router.post('/alumno/registrar', auth('admin'), adminCtrl.registrarAlumno);
 router.post('/matricula/manual', auth('admin'), adminCtrl.matriculaManual);
 router.post('/matricula/masiva', auth('admin'), adminCtrl.matriculaMasiva);
 router.post('/matricula/cambiar-ciclo', auth('admin'), adminCtrl.cambiarCicloAlumno);
+router.get('/matricula/plantilla-masiva', auth('admin'), adminCtrl.plantillaMasivaExcel);
+router.post('/matricula/masiva-excel', auth('admin'), adminCtrl.uploadExcelMatriculaMiddleware, adminCtrl.matriculaMasivaExcel);
 
 // Asistencia
 router.post('/asistencia', auth('admin'), adminCtrl.registrarAsistencia);
 router.post('/asistencia/inhabilitar-dia', auth('admin'), adminCtrl.inhabilitarDia);
+router.post('/asistencia/cierre-dia', auth('admin'), adminCtrl.cierreDia);
 
 // Horarios de cursos
 router.get('/horario', auth('admin'), adminCtrl.getHorarios);
@@ -64,5 +67,13 @@ router.get('/examen/:examenId/plantilla-notas', auth('admin'), adminCtrl.descarg
 
 // Subir Excel con notas
 router.post('/examen/:examenId/notas-excel', auth('admin'), adminCtrl.uploadExcelMiddleware, adminCtrl.subirNotasExcel);
+
+// Reportes Excel
+router.get('/reportes/alumnos-ciclo', auth('admin'), adminCtrl.reporteAlumnosCiclo);
+router.get('/reportes/orden-merito', auth('admin'), adminCtrl.reporteOrdenMerito);
+
+// Materiales por curso (admin — incluye url_drive)
+router.get('/cursos/:cursoId/materiales', auth('admin'), adminCtrl.getMaterialesPorCurso);
+router.post('/cursos/:cursoId/materiales', auth('admin'), adminCtrl.upsertMaterial);
 
 module.exports = router;

@@ -821,3 +821,348 @@ exports.subirNotasExcel = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// ===================== MATRÍCULA MASIVA POR EXCEL =====================
+
+exports.uploadExcelMatriculaMiddleware = uploadExcel.single('archivo');
+
+/** Genera plantilla Excel para matrícula masiva */
+exports.plantillaMasivaExcel = async (_req, res) => {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Matricula');
+
+    sheet.columns = [
+      { header: 'DNI', key: 'dni', width: 14 },
+      { header: 'Nombres', key: 'nombres', width: 25 },
+      { header: 'Apellidos', key: 'apellidos', width: 25 },
+      { header: 'FechaNacimiento', key: 'fechaNacimiento', width: 18 },
+      { header: 'Celular', key: 'celular', width: 14 },
+      { header: 'Email', key: 'email', width: 30 },
+      { header: 'CicloId', key: 'cicloId', width: 10 },
+    ];
+
+    // Fila de instrucciones
+    sheet.getRow(1).font = { bold: true };
+    sheet.addRow(['12345678', 'Juan Carlos', 'Pérez García', '2005-03-15', '999888777', 'apoderado@email.com', '1']);
+    sheet.addRow(['87654321', 'María', 'López Ríos', '2006-07-20', '987654321', '', '1']);
+    sheet.addRow(['11223344', '', '', '', '', '', '1']); // Solo DNI (alumno ya existe)
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=plantilla_matricula_masiva.xlsx');
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/** Procesa Excel de matrícula masiva con creación automática de alumnos */
+exports.matriculaMasivaExcel = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se envió ningún archivo Excel' });
+
+    const cicloIdDefault = req.body.cicloId ? parseInt(req.body.cicloId) : null;
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(req.file.buffer);
+    const sheet = workbook.worksheets[0];
+
+    const filas = [];
+    sheet.eachRow((row, rowNum) => {
+      if (rowNum === 1) return; // saltar header
+      const dni        = row.getCell(1).value?.toString().trim();
+      const nombres    = row.getCell(2).value?.toString().trim() || '';
+      const apellidos  = row.getCell(3).value?.toString().trim() || '';
+      const fechaNac   = row.getCell(4).value?.toString().trim() || '';
+      const celular    = row.getCell(5).value?.toString().trim() || '';
+      const email      = row.getCell(6).value?.toString().trim() || '';
+      const cicloId    = row.getCell(7).value ? parseInt(row.getCell(7).value) : cicloIdDefault;
+      if (dni) filas.push({ rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId });
+    });
+
+    if (filas.length === 0) return res.status(400).json({ error: 'No se encontraron filas válidas' });
+
+    let creados = 0, matriculados = 0;
+    const errores = [];
+
+    for (const fila of filas) {
+      try {
+        const { rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId } = fila;
+
+        if (!cicloId) { errores.push(`Fila ${rowNum}: CicloId no especificado`); continue; }
+
+        // Buscar alumno por código (código = DNI)
+        let alumno = await Alumno.findOne({ where: { codigo: dni } });
+
+        if (!alumno) {
+          // Intentar por dni como campo adicional si lo hubiera (aquí usamos codigo=dni)
+          if (!nombres || !apellidos) {
+            errores.push(`Fila ${rowNum}: Alumno con DNI ${dni} no existe y faltan datos (Nombres, Apellidos)`);
+            continue;
+          }
+
+          // Generar password: añoNacimiento-celular-dni
+          const anioBirth = fechaNac ? new Date(fechaNac).getFullYear() : new Date().getFullYear();
+          const passwordRaw = `${anioBirth}-${celular || dni}-${dni}`;
+          const hash = await bcrypt.hash(passwordRaw, 10);
+
+          // Código generado = DNI
+          const existeEmail = email ? await Alumno.findOne({ where: { email_alumno: email } }) : null;
+          const emailFinal = email && !existeEmail ? email : `${dni}@cec.edu.pe`;
+
+          alumno = await Alumno.create({
+            codigo: dni,
+            nombres,
+            apellidos,
+            email_alumno: emailFinal,
+            contrasena: hash,
+            celular: celular || null,
+          });
+
+          creados++;
+
+          // Enviar credenciales (stub si no hay SMTP)
+          sendCredentials(emailFinal, nombres, dni, passwordRaw).catch(() => {});
+        }
+
+        // Matricular en ciclo (ignorar si ya existe)
+        const yaMatriculado = await Matricula.findOne({
+          where: { alumno_id: alumno.id, ciclo_id: cicloId },
+        });
+
+        if (!yaMatriculado) {
+          await Matricula.create({
+            alumno_id: alumno.id,
+            ciclo_id: cicloId,
+            fecha_registro: new Date(),
+          });
+          matriculados++;
+        }
+      } catch (err) {
+        errores.push(`Fila ${fila.rowNum}: ${err.message}`);
+      }
+    }
+
+    res.json({ ok: true, creados, matriculados, errores });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== CIERRE DE DÍA (marcar FALTO a ausentes) =====================
+
+exports.cierreDia = async (req, res) => {
+  try {
+    const { cicloId, fecha } = req.body;
+    if (!cicloId) return res.status(400).json({ error: 'Se requiere cicloId' });
+
+    const fechaTarget = fecha ? new Date(fecha) : new Date();
+    const inicioDia = new Date(fechaTarget); inicioDia.setHours(0, 0, 0, 0);
+    const finDia    = new Date(fechaTarget); finDia.setHours(23, 59, 59, 999);
+    const fechaStr  = fechaTarget.toISOString().split('T')[0];
+
+    // Verificar si el día está inhabilitado
+    const diaInhabilitado = await Asistencia.findOne({
+      where: {
+        ciclo_id: cicloId,
+        fecha_hora: { [Op.between]: [inicioDia, finDia] },
+        estado: 'Inhabilitado',
+      },
+    });
+    if (diaInhabilitado) {
+      return res.json({ ok: true, marcados: 0, mensaje: 'El día está inhabilitado, no se aplica cierre.' });
+    }
+
+    // Alumnos matriculados en el ciclo
+    const matriculas = await Matricula.findAll({ where: { ciclo_id: cicloId } });
+    const alumnoIds = matriculas.map((m) => m.alumno_id);
+
+    // Quiénes ya tienen registro hoy
+    const conRegistro = await Asistencia.findAll({
+      where: {
+        alumno_id: { [Op.in]: alumnoIds },
+        ciclo_id: cicloId,
+        fecha_hora: { [Op.between]: [inicioDia, finDia] },
+      },
+      attributes: ['alumno_id'],
+    });
+    const idsConRegistro = new Set(conRegistro.map((a) => a.alumno_id));
+
+    // Insertar FALTO para los que no tienen registro
+    const ausentesIds = alumnoIds.filter((id) => !idsConRegistro.has(id));
+
+    if (ausentesIds.length > 0) {
+      const registrosFalto = ausentesIds.map((alumno_id) => ({
+        alumno_id,
+        ciclo_id: parseInt(cicloId),
+        fecha_hora: fechaTarget,
+        estado: 'FALTO',
+        observaciones: `Cierre de día ${fechaStr}`,
+      }));
+      await Asistencia.bulkCreate(registrosFalto);
+    }
+
+    res.json({ ok: true, marcados: ausentesIds.length, fecha: fechaStr });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== REPORTES EXCEL =====================
+
+/** Reporte: Alumnos por ciclo */
+exports.reporteAlumnosCiclo = async (req, res) => {
+  try {
+    const { cicloId } = req.query;
+    if (!cicloId) return res.status(400).json({ error: 'Se requiere cicloId' });
+
+    const ciclo = await Ciclo.findByPk(cicloId);
+    if (!ciclo) return res.status(404).json({ error: 'Ciclo no encontrado' });
+
+    const matriculas = await Matricula.findAll({
+      where: { ciclo_id: cicloId },
+      include: [{ model: Alumno, attributes: { exclude: ['contrasena'] } }],
+      order: [[Alumno, 'apellidos', 'ASC']],
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Alumnos');
+
+    sheet.columns = [
+      { header: 'N°',        key: 'num',      width: 6 },
+      { header: 'CÓDIGO',    key: 'codigo',   width: 15 },
+      { header: 'APELLIDOS', key: 'apellidos',width: 28 },
+      { header: 'NOMBRES',   key: 'nombres',  width: 25 },
+      { header: 'EMAIL',     key: 'email',    width: 32 },
+      { header: 'CELULAR',   key: 'celular',  width: 14 },
+      { header: 'F. REGISTRO', key: 'fecha', width: 14 },
+    ];
+
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D4F5C' } };
+    headerRow.alignment = { horizontal: 'center' };
+
+    matriculas.forEach((m, i) => {
+      const a = m.Alumno;
+      sheet.addRow({
+        num: i + 1,
+        codigo: a.codigo,
+        apellidos: a.apellidos,
+        nombres: a.nombres,
+        email: a.email_alumno || '',
+        celular: a.celular || '',
+        fecha: m.fecha_registro || '',
+      });
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=alumnos_ciclo_${cicloId}.xlsx`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/** Reporte: Orden de mérito por examen */
+exports.reporteOrdenMerito = async (req, res) => {
+  try {
+    const { examenId } = req.query;
+    if (!examenId) return res.status(400).json({ error: 'Se requiere examenId' });
+
+    const examen = await Examen.findByPk(examenId);
+    if (!examen) return res.status(404).json({ error: 'Examen no encontrado' });
+
+    const notas = await Nota.findAll({
+      where: { examen_id: examenId },
+      include: [{ model: Alumno, attributes: ['codigo', 'nombres', 'apellidos'] }],
+      order: [['puesto', 'ASC']],
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Orden de Mérito');
+
+    sheet.columns = [
+      { header: 'PUESTO',    key: 'puesto',   width: 10 },
+      { header: 'CÓDIGO',    key: 'codigo',   width: 15 },
+      { header: 'APELLIDOS', key: 'apellidos',width: 28 },
+      { header: 'NOMBRES',   key: 'nombres',  width: 25 },
+      { header: 'NOTA',      key: 'nota',     width: 10 },
+    ];
+
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A9396' } };
+    headerRow.alignment = { horizontal: 'center' };
+
+    notas.forEach((n) => {
+      const row = sheet.addRow({
+        puesto: n.puesto,
+        codigo: n.Alumno?.codigo || '',
+        apellidos: n.Alumno?.apellidos || '',
+        nombres: n.Alumno?.nombres || '',
+        nota: parseFloat(n.valor),
+      });
+      if (n.puesto === 1) row.font = { bold: true, color: { argb: 'FF78350F' } };
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=orden_merito_examen_${examenId}.xlsx`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== MATERIALES POR CURSO (con url_drive) =====================
+
+exports.getMaterialesPorCurso = async (req, res) => {
+  try {
+    const { cursoId } = req.params;
+    const materiales = await Material.findAll({
+      where: { curso_id: cursoId },
+      order: [['semana', 'ASC']],
+    });
+    res.json(materiales);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.upsertMaterial = async (req, res) => {
+  try {
+    const { cursoId } = req.params;
+    const { semana, nombre, urlDrive, urlArchivo } = req.body;
+
+    if (!semana || !nombre) {
+      return res.status(400).json({ error: 'Se requiere semana y nombre' });
+    }
+
+    const [material, created] = await Material.findOrCreate({
+      where: { curso_id: cursoId, semana: parseInt(semana) },
+      defaults: {
+        nombre,
+        url_drive: urlDrive || null,
+        url_archivo: urlArchivo || null,
+      },
+    });
+
+    if (!created) {
+      await material.update({
+        nombre: nombre || material.nombre,
+        url_drive: urlDrive !== undefined ? urlDrive : material.url_drive,
+        url_archivo: urlArchivo !== undefined ? urlArchivo : material.url_archivo,
+      });
+    }
+
+    res.json(material);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
