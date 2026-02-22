@@ -68,6 +68,9 @@ router.get('/alumno/:codigo/qr', auth('admin'), adminCtrl.descargarQR);
 // Listado de asistencia por día y ciclo
 router.get('/asistencia/listado', auth('admin'), adminCtrl.listadoAsistencia);
 
+// Ver notas/ranking de un examen
+router.get('/examen/:examenId/notas', auth('admin'), adminCtrl.getNotasExamen);
+
 // Descargar plantilla Excel de notas
 router.get('/examen/:examenId/plantilla-notas', auth('admin'), adminCtrl.descargarPlantillaNotas);
 

@@ -15,6 +15,7 @@ exports.login = async (req, res) => {
     const { usuario, contrasena } = req.body;
     const alumno = await Alumno.findOne({
       where: { codigo: usuario },
+      attributes: ['id', 'codigo', 'contrasena'],
     });
     if (!alumno) {
       return res.status(401).json({ error: 'Credenciales inválidas' });

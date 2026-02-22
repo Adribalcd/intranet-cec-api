@@ -276,7 +276,6 @@ exports.restaurarPasswordPorDefecto = async (req, res) => {
       const anio = new Date(alumno.fecha_nacimiento).getFullYear();
       passwordDefault = `${anio}-${alumno.celular}-${alumno.dni}`;
     } else {
-      // Fallback: usar el código del alumno como contraseña
       passwordDefault = alumno.codigo;
     }
 
@@ -509,6 +508,35 @@ exports.getExamenesPorCiclo = async (req, res) => {
       order: [['fecha', 'DESC']],
     });
     res.json(examenes);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== VER NOTAS DE UN EXAMEN =====================
+
+exports.getNotasExamen = async (req, res) => {
+  try {
+    const { examenId } = req.params;
+    const examen = await Examen.findByPk(examenId);
+    if (!examen) return res.status(404).json({ error: 'Examen no encontrado' });
+
+    const notas = await Nota.findAll({
+      where: { examen_id: examenId },
+      include: [{ model: Alumno, attributes: ['codigo', 'nombres', 'apellidos'] }],
+      order: [['puesto', 'ASC']],
+    });
+
+    res.json({
+      examen,
+      notas: notas.map((n) => ({
+        puesto: n.puesto,
+        nota: n.valor,
+        codigo: n.Alumno?.codigo,
+        nombres: n.Alumno?.nombres,
+        apellidos: n.Alumno?.apellidos,
+      })),
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
