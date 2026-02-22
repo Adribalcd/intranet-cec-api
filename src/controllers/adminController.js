@@ -198,10 +198,6 @@ exports.deleteCurso = async (req, res) => {
 
 // ===================== REGISTRO DE ALUMNO =====================
 
-import Alumno from '../models/Alumno.js';
-import bcrypt from 'bcrypt';
-import nodemailer from 'nodemailer';
-
 export const registrarAlumno = async (req, res) => {
   try {
     // 1. Recibimos los datos básicos, incluyendo DNI y Fecha de Nacimiento
