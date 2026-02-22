@@ -68,8 +68,11 @@ exports.horario = async (req, res) => {
       curso.HorarioCursos.forEach((h) => {
         horario.push({
           curso: curso.nombre,
+          profesor: curso.profesor,
           dia: h.dia_semana,
           hora: `${h.hora_inicio} - ${h.hora_fin}`,
+          horaInicio: h.hora_inicio,
+          horaFin: h.hora_fin,
         });
       });
     });

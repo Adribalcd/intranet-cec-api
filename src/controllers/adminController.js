@@ -3,8 +3,9 @@ const path = require('path');
 const multer = require('multer');
 const QRCode = require('qrcode');
 const ExcelJS = require('exceljs');
-const { Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota } = require('../models');
+const { Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, Material } = require('../models');
 const { generarToken } = require('../utils/tokenUtils');
+const { sendCredentials } = require('../utils/emailService');
 const { Op } = require('sequelize');
 
 // URL base del backend (para construir URLs de fotos accesibles desde el frontend)
@@ -363,6 +364,21 @@ exports.registrarAsistencia = async (req, res) => {
     });
 
     if (!matricula) return res.status(400).json({ error: 'Alumno sin matrícula activa' });
+
+    // Verificar registro único por día (ignora días inhabilitados)
+    const hoyInicio = new Date(); hoyInicio.setHours(0, 0, 0, 0);
+    const hoyFin = new Date(); hoyFin.setHours(23, 59, 59, 999);
+    const existente = await Asistencia.findOne({
+      where: {
+        alumno_id: alumno.id,
+        ciclo_id: matricula.ciclo_id,
+        fecha_hora: { [Op.between]: [hoyInicio, hoyFin] },
+        estado: { [Op.ne]: 'Inhabilitado' },
+      },
+    });
+    if (existente) {
+      return res.status(409).json({ error: 'El alumno ya tiene asistencia registrada hoy', estado: existente.estado });
+    }
 
     const asistencia = await Asistencia.create({
       alumno_id: alumno.id,
