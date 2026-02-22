@@ -7,6 +7,7 @@ const { Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen
 const { generarToken } = require('../utils/tokenUtils');
 const { sendCredentials } = require('../utils/emailService');
 const { Op } = require('sequelize');
+const nodemailer = require('nodemailer');
 
 // URL base del backend (para construir URLs de fotos accesibles desde el frontend)
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
@@ -201,18 +202,14 @@ exports.registrarAlumno = async (req, res) => {
   try {
     const { codigo, nombres, apellidos, email, contrasena, celular } = req.body;
 
-    if (!codigo || !nombres || !apellidos || !email || !contrasena) {
-      return res.status(400).json({ error: 'Campos obligatorios: codigo, nombres, apellidos, email, contrasena' });
-    }
+    // 1. Validar que la contraseña armada llegó
+    if (!contrasena) return res.status(400).json({ error: 'La contraseña generada es obligatoria' });
 
-    const existente = await Alumno.findOne({ where: { [Op.or]: [{ codigo }, { email_alumno: email }] } });
-    if (existente) {
-      return res.status(409).json({ error: 'Ya existe un alumno con ese código o email' });
-    }
-
+    // 2. Hash para seguridad en DB
     const hash = await bcrypt.hash(contrasena, 10);
 
-    const alumno = await Alumno.create({
+    // 3. Crear registro
+    await Alumno.create({
       codigo,
       nombres,
       apellidos,
@@ -221,8 +218,32 @@ exports.registrarAlumno = async (req, res) => {
       celular: celular || null,
     });
 
-    const { contrasena: _, ...data } = alumno.toJSON();
-    res.status(201).json(data);
+    // 4. Configurar envío de correo
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+    });
+
+    await transporter.sendMail({
+      from: '"Academia CEC - Intranet" <soporte@cec.com>',
+      to: email,
+      subject: '🔑 Tus accesos a la Intranet Académica',
+      html: `
+        <div style="font-family: Arial; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+          <h2 style="color: #0a9396;">Bienvenido(a) ${nombres}</h2>
+          <p>Se ha generado tu cuenta exitosamente. Utiliza las siguientes credenciales:</p>
+          <div style="background: #f4f4f4; padding: 15px; border-radius: 5px;">
+            <p><strong>Usuario:</strong> ${codigo}</p>
+            <p><strong>Contraseña:</strong> ${contrasena}</p>
+          </div>
+          <p style="font-size: 12px; color: #666; margin-top: 15px;">
+            Nota: Tu contraseña fue generada automáticamente.
+          </p>
+        </div>
+      `
+    });
+
+    res.status(201).json({ mensaje: 'Alumno registrado y correo enviado' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
