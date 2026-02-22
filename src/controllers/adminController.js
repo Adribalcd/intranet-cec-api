@@ -7,8 +7,6 @@ const { Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen
 const { generarToken } = require('../utils/tokenUtils');
 const { sendCredentials } = require('../utils/emailService');
 const { Op } = require('sequelize');
-const nodemailer = require('nodemailer');
-
 // URL base del backend (para construir URLs de fotos accesibles desde el frontend)
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
@@ -198,73 +196,43 @@ exports.deleteCurso = async (req, res) => {
 
 // ===================== REGISTRO DE ALUMNO =====================
 
-export const registrarAlumno = async (req, res) => {
+exports.registrarAlumno = async (req, res) => {
   try {
-    // 1. Recibimos los datos básicos, incluyendo DNI y Fecha de Nacimiento
     const { codigo, nombres, apellidos, email, celular, dni, fechaNacimiento } = req.body;
 
-    // 2. GENERACIÓN DE LA CONTRASEÑA EN EL BACKEND
-    // Formato: Año(YYYY) - Celular - DNI
-    if (!fechaNacimiento || !celular || !dni) {
-      return res.status(400).json({ 
-        error: 'Faltan datos para generar la clave (Fecha de nacimiento, celular o DNI)' 
-      });
+    if (!codigo || !nombres || !apellidos) {
+      return res.status(400).json({ error: 'Se requiere codigo, nombres y apellidos' });
     }
 
-    const anio = fechaNacimiento.split('-')[0]; // Extrae '1995' de '1995-05-20'
-    const contrasenaPlana = `${anio}-${celular}-${dni}`;
+    // Generar contraseña: año-celular-dni (si hay datos) o código por defecto
+    const anio = fechaNacimiento ? fechaNacimiento.split('-')[0] : new Date().getFullYear();
+    const contrasenaPlana = (fechaNacimiento && celular && dni)
+      ? `${anio}-${celular}-${dni}`
+      : codigo;
 
-    // 3. Hash para seguridad en la Base de Datos
-    const saltRounds = 10;
-    const hash = await bcrypt.hash(contrasenaPlana, saltRounds);
+    const hash = await bcrypt.hash(contrasenaPlana, 10);
 
-    // 4. Crear registro en la DB
     const nuevoAlumno = await Alumno.create({
       codigo,
       nombres,
       apellidos,
-      email_alumno: email,
-      contrasena: hash, // Guardamos el hash
+      email_alumno: email || `${codigo}@cec.edu.pe`,
+      contrasena: hash,
       celular: celular || null,
-      dni: dni,
-      fecha_nacimiento: fechaNacimiento
     });
 
-    // 5. Configurar envío de correo con la contraseña PLANA (antes del hash)
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { 
-        user: process.env.EMAIL_USER, 
-        pass: process.env.EMAIL_PASS 
-      }
-    });
+    // Enviar credenciales de forma no bloqueante (stub graceful)
+    if (email) {
+      sendCredentials(email, nombres, codigo, contrasenaPlana).catch(() => {});
+    }
 
-    await transporter.sendMail({
-      from: '"Academia CEC - Intranet" <soporte@cec.com>',
-      to: email,
-      subject: '🔑 Tus accesos a la Intranet Académica',
-      html: `
-        <div style="font-family: Arial; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
-          <h2 style="color: #0a9396;">Bienvenido(a) ${nombres}</h2>
-          <p>Se ha generado tu cuenta exitosamente. Utiliza las siguientes credenciales:</p>
-          <div style="background: #f4f4f4; padding: 15px; border-radius: 5px;">
-            <p><strong>Usuario:</strong> ${codigo}</p>
-            <p><strong>Contraseña:</strong> ${contrasenaPlana}</p>
-          </div>
-          <p style="font-size: 12px; color: #666; margin-top: 15px;">
-            Nota: Tu contraseña fue generada automáticamente siguiendo el formato: Año-Celular-DNI.
-          </p>
-        </div>
-      `
+    return res.status(201).json({
+      ok: true,
+      mensaje: 'Alumno registrado correctamente',
+      alumno: { ...nuevoAlumno.toJSON(), contrasena: undefined },
     });
-
-    return res.status(201).json({ 
-      mensaje: 'Alumno registrado y correo enviado',
-      alumno: nuevoAlumno 
-    });
-
   } catch (error) {
-    console.error("Error en registro:", error);
+    console.error('Error en registrarAlumno:', error.message);
     res.status(500).json({ error: error.message });
   }
 };

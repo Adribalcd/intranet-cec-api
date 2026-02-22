@@ -82,15 +82,19 @@ async function seed() {
 
     // ===================== MATERIALES =====================
     await Material.bulkCreate([
-      { curso_id: cursoMat.id, semana: 1, nombre: 'Introducción al Álgebra', url_archivo: 'https://ejemplo.com/mat-s1.pdf' },
-      { curso_id: cursoMat.id, semana: 1, nombre: 'Ejercicios Semana 1', url_archivo: 'https://ejemplo.com/mat-s1-ejercicios.pdf' },
-      { curso_id: cursoMat.id, semana: 2, nombre: 'Ecuaciones Lineales', url_archivo: 'https://ejemplo.com/mat-s2.pdf' },
-      { curso_id: cursoFis.id, semana: 1, nombre: 'Cinemática - Teoría', url_archivo: 'https://ejemplo.com/fis-s1.pdf' },
-      { curso_id: cursoFis.id, semana: 2, nombre: 'MRU y MRUV', url_archivo: 'https://ejemplo.com/fis-s2.pdf' },
-      { curso_id: cursoQuim.id, semana: 1, nombre: 'Tabla Periódica', url_archivo: 'https://ejemplo.com/quim-s1.pdf' },
-      { curso_id: cursoLen.id, semana: 1, nombre: 'Ortografía General', url_archivo: 'https://ejemplo.com/len-s1.pdf' },
+      { curso_id: cursoMat.id, semana: 1, nombre: 'Introducción al Álgebra', url_archivo: 'https://ejemplo.com/mat-s1.pdf', url_drive: 'https://drive.google.com/drive/folders/ejemplo-mat-s1' },
+      { curso_id: cursoMat.id, semana: 2, nombre: 'Ecuaciones Lineales', url_archivo: 'https://ejemplo.com/mat-s2.pdf', url_drive: 'https://drive.google.com/drive/folders/ejemplo-mat-s2' },
+      { curso_id: cursoMat.id, semana: 3, nombre: 'Sistemas de Ecuaciones', url_archivo: null, url_drive: 'https://drive.google.com/drive/folders/ejemplo-mat-s3' },
+      { curso_id: cursoMat.id, semana: 4, nombre: 'Inecuaciones', url_archivo: null, url_drive: 'https://drive.google.com/drive/folders/ejemplo-mat-s4' },
+      { curso_id: cursoFis.id, semana: 1, nombre: 'Cinemática - Teoría', url_archivo: 'https://ejemplo.com/fis-s1.pdf', url_drive: 'https://drive.google.com/drive/folders/ejemplo-fis-s1' },
+      { curso_id: cursoFis.id, semana: 2, nombre: 'MRU y MRUV', url_archivo: 'https://ejemplo.com/fis-s2.pdf', url_drive: 'https://drive.google.com/drive/folders/ejemplo-fis-s2' },
+      { curso_id: cursoFis.id, semana: 3, nombre: 'Dinámica y Fuerzas', url_archivo: null, url_drive: 'https://drive.google.com/drive/folders/ejemplo-fis-s3' },
+      { curso_id: cursoQuim.id, semana: 1, nombre: 'Tabla Periódica', url_archivo: 'https://ejemplo.com/quim-s1.pdf', url_drive: 'https://drive.google.com/drive/folders/ejemplo-quim-s1' },
+      { curso_id: cursoQuim.id, semana: 2, nombre: 'Enlace Químico', url_archivo: null, url_drive: 'https://drive.google.com/drive/folders/ejemplo-quim-s2' },
+      { curso_id: cursoLen.id, semana: 1, nombre: 'Ortografía General', url_archivo: 'https://ejemplo.com/len-s1.pdf', url_drive: 'https://drive.google.com/drive/folders/ejemplo-len-s1' },
+      { curso_id: cursoLen.id, semana: 2, nombre: 'Comprensión Lectora', url_archivo: null, url_drive: 'https://drive.google.com/drive/folders/ejemplo-len-s2' },
     ]);
-    console.log('7 materiales creados');
+    console.log('11 materiales creados (con url_drive)');
 
     // ===================== EXÁMENES =====================
     const examen1 = await Examen.create({ ciclo_id: ciclo1.id, semana: 2, tipo_examen: 'Practica', fecha: '2026-01-27' });
@@ -151,7 +155,7 @@ async function seed() {
       }
     }
 
-    // Un día inhabilitado
+    // Un día inhabilitado (feriado)
     for (const alumno of alumnos) {
       asistenciaData.push({
         alumno_id: alumno.id,
@@ -162,8 +166,34 @@ async function seed() {
       });
     }
 
+    // Registros FALTO (cierre de día simulado para 2026-01-29)
+    // Solo alumnos 0, 2 y 4 faltaron ese día — los otros 2 vinieron
+    asistenciaData.push({
+      alumno_id: alumnos[1].id,
+      ciclo_id: ciclo1.id,
+      fecha_hora: new Date('2026-01-29T08:15:00'),
+      estado: 'Presente',
+    });
+    asistenciaData.push({
+      alumno_id: alumnos[3].id,
+      ciclo_id: ciclo1.id,
+      fecha_hora: new Date('2026-01-29T08:30:00'),
+      estado: 'Tardanza',
+      observaciones: 'Llegó 30 minutos tarde',
+    });
+    // Los alumnos 0, 2 y 4 son marcados FALTO por cierre
+    for (const idx of [0, 2, 4]) {
+      asistenciaData.push({
+        alumno_id: alumnos[idx].id,
+        ciclo_id: ciclo1.id,
+        fecha_hora: new Date('2026-01-29T23:59:00'),
+        estado: 'FALTO',
+        observaciones: 'Cierre de día 2026-01-29',
+      });
+    }
+
     await Asistencia.bulkCreate(asistenciaData);
-    console.log(`${asistenciaData.length} registros de asistencia creados`);
+    console.log(`${asistenciaData.length} registros de asistencia creados (incl. FALTO y Inhabilitado)`);
 
     // ===================== RESUMEN =====================
     console.log('\n========== SEED COMPLETADO ==========');
