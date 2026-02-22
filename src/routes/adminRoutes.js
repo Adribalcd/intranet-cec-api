@@ -50,11 +50,17 @@ router.post('/examen/:examenId/calificaciones', auth('admin'), adminCtrl.registr
 // Consultar alumno por código
 router.get('/alumno/:codigo', auth('admin'), adminCtrl.getAlumnoByCodigo);
 
+// Restaurar contraseña por defecto
+router.post('/alumno/:codigo/restaurar-password', auth('admin'), adminCtrl.restaurarPasswordPorDefecto);
+
 // Subir foto de alumno
 router.post('/alumno/:codigo/foto', auth('admin'), adminCtrl.uploadFotoMiddleware, adminCtrl.subirFotoAlumno);
 
 // Alumnos matriculados en ciclo vigente
 router.get('/ciclo-vigente/alumnos', auth('admin'), adminCtrl.alumnosCicloVigente);
+
+// Alumnos matriculados por cualquier ciclo
+router.get('/ciclos/:cicloId/alumnos-matriculados', auth('admin'), adminCtrl.getAlumnosPorCiclo);
 
 // Descargar QR del alumno
 router.get('/alumno/:codigo/qr', auth('admin'), adminCtrl.descargarQR);

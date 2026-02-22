@@ -2,6 +2,13 @@ const bcrypt = require('bcryptjs');
 const { Alumno, Matricula, Curso, Ciclo, HorarioCurso, Asistencia, Nota, Examen, Material } = require('../models');
 const { generarToken, invalidarToken } = require('../utils/tokenUtils');
 
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+function buildFotoUrl(url) {
+  if (!url) return null;
+  if (url.startsWith('http')) return url;
+  return `${BASE_URL}${url}`;
+}
+
 // POST /api/alumno/login
 exports.login = async (req, res) => {
   try {
@@ -27,11 +34,10 @@ exports.login = async (req, res) => {
 exports.perfil = async (req, res) => {
   try {
     const alumno = await Alumno.findByPk(req.usuario.id, {
-      attributes: ['nombres', 'apellidos', 'foto_url'],
+      attributes: ['codigo', 'nombres', 'apellidos', 'email_alumno', 'celular', 'foto_url'],
     });
     if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
 
-    // Obtener ciclo actual a través de matrícula
     const matricula = await Matricula.findOne({
       where: { alumno_id: req.usuario.id },
       include: [{ model: Ciclo, attributes: ['nombres'] }],
@@ -39,10 +45,13 @@ exports.perfil = async (req, res) => {
     });
 
     res.json({
+      codigo: alumno.codigo,
       nombres: alumno.nombres,
       apellidos: alumno.apellidos,
+      email: alumno.email_alumno,
+      celular: alumno.celular || null,
       ciclo: matricula?.Ciclo?.nombres || null,
-      fotoUrl: alumno.foto_url,
+      fotoUrl: buildFotoUrl(alumno.foto_url),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -110,7 +119,7 @@ exports.calificaciones = async (req, res) => {
     const notas = await Nota.findAll({
       where: { alumno_id: req.usuario.id },
       include: [{ model: Examen, attributes: ['fecha', 'tipo_examen', 'semana', 'cantidad_preguntas'] }],
-      order: [[Examen, 'fecha', 'DESC']],
+      order: [[Examen, 'semana', 'ASC']],
     });
 
     res.json(
@@ -171,6 +180,7 @@ exports.materiales = async (req, res) => {
         nombre: m.nombre,
         semana: m.semana,
         urlArchivo: m.url_archivo,
+        urlDrive: m.url_drive || null,
       }))
     );
   } catch (error) {

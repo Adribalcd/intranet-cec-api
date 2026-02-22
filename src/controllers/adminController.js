@@ -204,7 +204,6 @@ exports.registrarAlumno = async (req, res) => {
       return res.status(400).json({ error: 'Se requiere codigo, nombres y apellidos' });
     }
 
-    // Generar contraseña: año-celular-dni (si hay datos) o código por defecto
     const anio = fechaNacimiento ? fechaNacimiento.split('-')[0] : new Date().getFullYear();
     const contrasenaPlana = (fechaNacimiento && celular && dni)
       ? `${anio}-${celular}-${dni}`
@@ -219,9 +218,10 @@ exports.registrarAlumno = async (req, res) => {
       email_alumno: email || `${codigo}@cec.edu.pe`,
       contrasena: hash,
       celular: celular || null,
+      dni: dni || null,
+      fecha_nacimiento: fechaNacimiento || null,
     });
 
-    // Enviar credenciales de forma no bloqueante (stub graceful)
     if (email) {
       sendCredentials(email, nombres, codigo, contrasenaPlana).catch(() => {});
     }
@@ -233,6 +233,58 @@ exports.registrarAlumno = async (req, res) => {
     });
   } catch (error) {
     console.error('Error en registrarAlumno:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== ALUMNOS POR CICLO (cualquier ciclo) =====================
+
+exports.getAlumnosPorCiclo = async (req, res) => {
+  try {
+    const { cicloId } = req.params;
+    const ciclo = await Ciclo.findByPk(cicloId);
+    if (!ciclo) return res.status(404).json({ error: 'Ciclo no encontrado' });
+
+    const matriculas = await Matricula.findAll({
+      where: { ciclo_id: cicloId },
+      include: [{ model: Alumno, attributes: { exclude: ['contrasena'] } }],
+      order: [[Alumno, 'apellidos', 'ASC']],
+    });
+
+    const alumnos = matriculas.map((m) => {
+      const a = m.Alumno.toJSON();
+      a.foto_url = buildFotoUrl(a.foto_url);
+      return a;
+    });
+
+    res.json({ ciclo, alumnos });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== RESTAURAR CONTRASEÑA POR DEFECTO =====================
+
+exports.restaurarPasswordPorDefecto = async (req, res) => {
+  try {
+    const { codigo } = req.params;
+    const alumno = await Alumno.findOne({ where: { codigo } });
+    if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+
+    let passwordDefault;
+    if (alumno.fecha_nacimiento && alumno.celular && alumno.dni) {
+      const anio = new Date(alumno.fecha_nacimiento).getFullYear();
+      passwordDefault = `${anio}-${alumno.celular}-${alumno.dni}`;
+    } else {
+      // Fallback: usar el código del alumno como contraseña
+      passwordDefault = alumno.codigo;
+    }
+
+    const hash = await bcrypt.hash(passwordDefault, 10);
+    await alumno.update({ contrasena: hash });
+
+    res.json({ ok: true, passwordDefault, mensaje: 'Contraseña restaurada al valor por defecto' });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
@@ -624,7 +676,11 @@ exports.listadoAsistencia = async (req, res) => {
 
     const asistenciaMap = {};
     asistencias.forEach((a) => {
-      asistenciaMap[a.alumno_id] = { estado: a.estado, observaciones: a.observaciones };
+      asistenciaMap[a.alumno_id] = {
+        estado: a.estado,
+        observaciones: a.observaciones,
+        hora: a.fecha_hora,
+      };
     });
 
     const listado = matriculas.map((m) => ({
@@ -633,6 +689,7 @@ exports.listadoAsistencia = async (req, res) => {
       apellidos: m.Alumno.apellidos,
       estado: asistenciaMap[m.Alumno.id]?.estado || 'Sin registro',
       observaciones: asistenciaMap[m.Alumno.id]?.observaciones || '',
+      hora: asistenciaMap[m.Alumno.id]?.hora || null,
     }));
 
     res.json({ fecha, cicloId: parseInt(cicloId), listado });
