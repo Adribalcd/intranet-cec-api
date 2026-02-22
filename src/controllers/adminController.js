@@ -198,30 +198,49 @@ exports.deleteCurso = async (req, res) => {
 
 // ===================== REGISTRO DE ALUMNO =====================
 
-exports.registrarAlumno = async (req, res) => {
+import Alumno from '../models/Alumno.js';
+import bcrypt from 'bcrypt';
+import nodemailer from 'nodemailer';
+
+export const registrarAlumno = async (req, res) => {
   try {
-    const { codigo, nombres, apellidos, email, contrasena, celular } = req.body;
+    // 1. Recibimos los datos básicos, incluyendo DNI y Fecha de Nacimiento
+    const { codigo, nombres, apellidos, email, celular, dni, fechaNacimiento } = req.body;
 
-    // 1. Validar que la contraseña armada llegó
-    if (!contrasena) return res.status(400).json({ error: 'La contraseña generada es obligatoria' });
+    // 2. GENERACIÓN DE LA CONTRASEÑA EN EL BACKEND
+    // Formato: Año(YYYY) - Celular - DNI
+    if (!fechaNacimiento || !celular || !dni) {
+      return res.status(400).json({ 
+        error: 'Faltan datos para generar la clave (Fecha de nacimiento, celular o DNI)' 
+      });
+    }
 
-    // 2. Hash para seguridad en DB
-    const hash = await bcrypt.hash(contrasena, 10);
+    const anio = fechaNacimiento.split('-')[0]; // Extrae '1995' de '1995-05-20'
+    const contrasenaPlana = `${anio}-${celular}-${dni}`;
 
-    // 3. Crear registro
-    await Alumno.create({
+    // 3. Hash para seguridad en la Base de Datos
+    const saltRounds = 10;
+    const hash = await bcrypt.hash(contrasenaPlana, saltRounds);
+
+    // 4. Crear registro en la DB
+    const nuevoAlumno = await Alumno.create({
       codigo,
       nombres,
       apellidos,
       email_alumno: email,
-      contrasena: hash,
+      contrasena: hash, // Guardamos el hash
       celular: celular || null,
+      dni: dni,
+      fecha_nacimiento: fechaNacimiento
     });
 
-    // 4. Configurar envío de correo
+    // 5. Configurar envío de correo con la contraseña PLANA (antes del hash)
     const transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+      auth: { 
+        user: process.env.EMAIL_USER, 
+        pass: process.env.EMAIL_PASS 
+      }
     });
 
     await transporter.sendMail({
@@ -234,17 +253,22 @@ exports.registrarAlumno = async (req, res) => {
           <p>Se ha generado tu cuenta exitosamente. Utiliza las siguientes credenciales:</p>
           <div style="background: #f4f4f4; padding: 15px; border-radius: 5px;">
             <p><strong>Usuario:</strong> ${codigo}</p>
-            <p><strong>Contraseña:</strong> ${contrasena}</p>
+            <p><strong>Contraseña:</strong> ${contrasenaPlana}</p>
           </div>
           <p style="font-size: 12px; color: #666; margin-top: 15px;">
-            Nota: Tu contraseña fue generada automáticamente.
+            Nota: Tu contraseña fue generada automáticamente siguiendo el formato: Año-Celular-DNI.
           </p>
         </div>
       `
     });
 
-    res.status(201).json({ mensaje: 'Alumno registrado y correo enviado' });
+    return res.status(201).json({ 
+      mensaje: 'Alumno registrado y correo enviado',
+      alumno: nuevoAlumno 
+    });
+
   } catch (error) {
+    console.error("Error en registro:", error);
     res.status(500).json({ error: error.message });
   }
 };
