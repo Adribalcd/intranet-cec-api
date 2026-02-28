@@ -1,2 +1,6 @@
 node_modules/
 .env
+
+# Fotos subidas (ignorar el contenido pero mantener la carpeta)
+src/uploads/fotos/*
+!src/uploads/fotos/.gitkeep
