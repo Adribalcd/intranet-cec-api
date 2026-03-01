@@ -1,32 +1,76 @@
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const { Readable } = require('stream');
 const multer = require('multer');
 const QRCode = require('qrcode');
 const ExcelJS = require('exceljs');
+const { google } = require('googleapis');
 const { Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, Material } = require('../models');
 const { generarToken } = require('../utils/tokenUtils');
 const { sendCredentials } = require('../utils/emailService');
 const { Op } = require('sequelize');
-// URL base del backend (para construir URLs de fotos accesibles desde el frontend)
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+
+// Carpeta de Drive donde se guardan las fotos de alumnos
+const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '12RAhO7i3rW3LbXFzbdh43CGk_BjEDKGi';
+
+function getDrive() {
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/drive'],
+  });
+  return google.drive({ version: 'v3', auth });
+}
+
+async function subirImagenDrive(buffer, mimetype, codigo) {
+  const drive = getDrive();
+  const nombre = `alumno_${codigo}`;
+
+  // Si ya existe un archivo con ese nombre en la carpeta, actualizarlo
+  const { data: { files } } = await drive.files.list({
+    q: `name='${nombre}' and '${DRIVE_FOLDER_ID}' in parents and trashed=false`,
+    fields: 'files(id)',
+    spaces: 'drive',
+  });
+
+  let fileId;
+  if (files.length > 0) {
+    fileId = files[0].id;
+    await drive.files.update({
+      fileId,
+      media: { mimeType: mimetype, body: Readable.from(buffer) },
+    });
+  } else {
+    const { data } = await drive.files.create({
+      requestBody: { name: nombre, parents: [DRIVE_FOLDER_ID] },
+      media: { mimeType: mimetype, body: Readable.from(buffer) },
+      fields: 'id',
+    });
+    fileId = data.id;
+    await drive.permissions.create({
+      fileId,
+      requestBody: { role: 'reader', type: 'anyone' },
+    });
+  }
+
+  // URL directa para usar en <img src="...">
+  return `https://lh3.googleusercontent.com/d/${fileId}`;
+}
+
+// buildFotoUrl: las URLs de Drive ya son https:// y pasan directo
+const BASE_URL = (process.env.BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
 function buildFotoUrl(fotoUrl) {
   if (!fotoUrl) return null;
   if (fotoUrl.startsWith('http')) return fotoUrl;
-  return `${BASE_URL}${fotoUrl}`;
+  const p = fotoUrl.startsWith('/') ? fotoUrl : `/${fotoUrl}`;
+  return `${BASE_URL}${p}`;
 }
 
-// Configuración de multer para fotos
-const storageFotos = multer.diskStorage({
-  destination: path.join(__dirname, '..', 'uploads', 'fotos'),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${req.params.codigo}${ext}`);
-  },
-});
+// Multer en memoria (el archivo va a Drive, no al disco)
 const uploadFoto = multer({
-  storage: storageFotos,
-  fileFilter: (req, file, cb) => {
+  storage: multer.memoryStorage(),
+  fileFilter: (_req, file, cb) => {
     const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
     const ext = path.extname(file.originalname).toLowerCase();
     cb(null, allowed.includes(ext));
@@ -613,10 +657,10 @@ exports.subirFotoAlumno = async (req, res) => {
 
     if (!req.file) return res.status(400).json({ error: 'No se envió ninguna imagen' });
 
-    const fotoPath = `/uploads/fotos/${req.file.filename}`;
-    await alumno.update({ foto_url: fotoPath });
+    const driveUrl = await subirImagenDrive(req.file.buffer, req.file.mimetype, codigo);
+    await alumno.update({ foto_url: driveUrl });
 
-    res.json({ ok: true, foto_url: buildFotoUrl(fotoPath) });
+    res.json({ ok: true, foto_url: driveUrl });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
