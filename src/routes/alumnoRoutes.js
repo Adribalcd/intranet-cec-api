@@ -9,6 +9,7 @@ router.post('/recuperar-password', alumnoCtrl.recuperarPassword);
 router.post('/reset-password', alumnoCtrl.resetPassword);
 
 // Protegidas
+router.get('/qr', auth('alumno'), alumnoCtrl.getQr);
 router.get('/perfil', auth('alumno'), alumnoCtrl.perfil);
 router.get('/horario', auth('alumno'), alumnoCtrl.horario);
 router.get('/asistencia', auth('alumno'), alumnoCtrl.asistencia);

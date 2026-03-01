@@ -1,4 +1,5 @@
 const bcrypt = require('bcryptjs');
+const QRCode = require('qrcode');
 const { Alumno, Matricula, Curso, Ciclo, HorarioCurso, Asistencia, Nota, Examen, Material } = require('../models');
 const { generarToken, invalidarToken } = require('../utils/tokenUtils');
 
@@ -54,6 +55,22 @@ exports.perfil = async (req, res) => {
       ciclo: matricula?.Ciclo?.nombres || null,
       fotoUrl: buildFotoUrl(alumno.foto_url),
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// GET /api/alumno/qr
+exports.getQr = async (req, res) => {
+  try {
+    const alumno = await Alumno.findByPk(req.usuario.id, { attributes: ['codigo'] });
+    if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+
+    const qrBuffer = await QRCode.toBuffer(alumno.codigo, { type: 'png', width: 300 });
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `inline; filename=qr_${alumno.codigo}.png`);
+    res.send(qrBuffer);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
