@@ -32,6 +32,19 @@ JWT_SECRET=tu_secret
 PORT=3000
 ```
 
+### Configuración del servicio de imágenes
+
+Esta API puede utilizar un servicio independiente para almacenar fotos. Si deployas el [image-service](../intranet-cec-image-service) en Render o en tu VPS, añade la variable:
+
+```
+IMAGE_SERVICE_URL=https://<tu-servicio-imagenes>.onrender.com
+```
+
+Cuando está presente, las cargas enviarán la imagen a ese servicio y la URL resultante se guardará en la base de datos. Si no se define, se usará almacenamiento local (`uploads/fotos/`).
+
+
+
+
 ## Ejecución
 
 ```bash

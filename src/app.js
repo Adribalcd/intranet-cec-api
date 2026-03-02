@@ -13,7 +13,9 @@ app.use(cors());
 app.use(express.json());
 
 // Servir archivos estáticos (fotos de alumnos)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Usa UPLOADS_PATH si está configurado (para persistencia en producción)
+const uploadsPath = process.env.UPLOADS_PATH || path.join(__dirname, 'uploads');
+app.use('/uploads', express.static(uploadsPath));
 
 // Rutas
 app.get('/', (req, res) => {

@@ -1,5 +1,6 @@
 node_modules/
 .env
+google-credentials.json
 
 # Fotos subidas (ignorar el contenido pero mantener la carpeta)
 src/uploads/fotos/*

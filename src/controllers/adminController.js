@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const fs = require('fs');
 const { Readable } = require('stream');
 const multer = require('multer');
 const QRCode = require('qrcode');
@@ -14,7 +15,27 @@ const { Op } = require('sequelize');
 const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '12RAhO7i3rW3LbXFzbdh43CGk_BjEDKGi';
 
 function getDrive() {
-  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  let credentials;
+  try {
+    // Intentar cargar desde archivo primero (recomendado)
+    const credentialsPath = path.join(__dirname, '../../google-credentials.json');
+    if (fs.existsSync(credentialsPath)) {
+      credentials = require(credentialsPath);
+    } else if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+      // Fallback a variable de entorno
+      let jsonStr = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+      if (jsonStr.startsWith('"') && jsonStr.endsWith('"')) {
+        jsonStr = jsonStr.slice(1, -1);
+      }
+      jsonStr = jsonStr.replace(/\\n/g, '\n');
+      credentials = JSON.parse(jsonStr);
+    } else {
+      throw new Error('No se encontró configuración de Google Drive');
+    }
+  } catch (err) {
+    throw new Error(`Error al cargar credenciales de Google: ${err.message}`);
+  }
+
   const auth = new google.auth.GoogleAuth({
     credentials,
     scopes: ['https://www.googleapis.com/auth/drive'],
@@ -22,39 +43,50 @@ function getDrive() {
   return google.drive({ version: 'v3', auth });
 }
 
-async function subirImagenDrive(buffer, mimetype, codigo) {
-  const drive = getDrive();
-  const nombre = `alumno_${codigo}`;
-
-  // Si ya existe un archivo con ese nombre en la carpeta, actualizarlo
-  const { data: { files } } = await drive.files.list({
-    q: `name='${nombre}' and '${DRIVE_FOLDER_ID}' in parents and trashed=false`,
-    fields: 'files(id)',
-    spaces: 'drive',
-  });
-
-  let fileId;
-  if (files.length > 0) {
-    fileId = files[0].id;
-    await drive.files.update({
-      fileId,
-      media: { mimeType: mimetype, body: Readable.from(buffer) },
-    });
-  } else {
-    const { data } = await drive.files.create({
-      requestBody: { name: nombre, parents: [DRIVE_FOLDER_ID] },
-      media: { mimeType: mimetype, body: Readable.from(buffer) },
-      fields: 'id',
-    });
-    fileId = data.id;
-    await drive.permissions.create({
-      fileId,
-      requestBody: { role: 'reader', type: 'anyone' },
-    });
+async function subirImagenLocal(buffer, codigo) {
+  // Usar variable de entorno para la ruta de almacenamiento
+  // En desarrollo: src/uploads/fotos
+  // En producción: /app/data/uploads/fotos o la ruta que especifiques en UPLOADS_PATH
+  const uploadsPath = process.env.UPLOADS_PATH || path.join(__dirname, '../../uploads/fotos');
+  
+  // Crear carpeta si no existe
+  if (!fs.existsSync(uploadsPath)) {
+    fs.mkdirSync(uploadsPath, { recursive: true });
   }
 
-  // URL directa para usar en <img src="...">
-  return `https://lh3.googleusercontent.com/d/${fileId}`;
+  // Nombre del archivo: alumno_CODIGO.jpg
+  const filename = `alumno_${codigo}.jpg`;
+  const filepath = path.join(uploadsPath, filename);
+
+  // Guardar el archivo
+  fs.writeFileSync(filepath, buffer);
+
+  // Retornar URL relativa que el cliente puede acceder
+  return `/uploads/fotos/${filename}`;
+}
+
+// helper que envía la imagen a un servicio remoto configurado con IMAGE_SERVICE_URL
+async function subirFotoRemota(buffer, codigo) {
+  if (!process.env.IMAGE_SERVICE_URL) {
+    throw new Error('IMAGE_SERVICE_URL no configurado');
+  }
+  const fetch = require('node-fetch');
+  const FormData = require('form-data');
+
+  const form = new FormData();
+  form.append('foto', buffer, `alumno_${codigo}.jpg`);
+  form.append('codigo', codigo);
+
+  const res = await fetch(process.env.IMAGE_SERVICE_URL + '/upload', {
+    method: 'POST',
+    body: form,
+    headers: form.getHeaders(),
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    throw new Error(data.error || 'upload failed');
+  }
+  return data.url;
 }
 
 // buildFotoUrl: las URLs de Drive ya son https:// y pasan directo
@@ -73,7 +105,10 @@ const uploadFoto = multer({
   fileFilter: (_req, file, cb) => {
     const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
     const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, allowed.includes(ext));
+    if (!allowed.includes(ext)) {
+      return cb(new Error('Solo se permiten imágenes JPG, PNG o WebP'));
+    }
+    cb(null, true);
   },
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
@@ -647,7 +682,14 @@ exports.getAlumnoByCodigo = async (req, res) => {
 
 // ===================== SUBIR FOTO DE ALUMNO =====================
 
-exports.uploadFotoMiddleware = uploadFoto.single('foto');
+exports.uploadFotoMiddleware = (req, res, next) => {
+  uploadFoto.single('foto')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+};
 
 exports.subirFotoAlumno = async (req, res) => {
   try {
@@ -657,10 +699,15 @@ exports.subirFotoAlumno = async (req, res) => {
 
     if (!req.file) return res.status(400).json({ error: 'No se envió ninguna imagen' });
 
-    const driveUrl = await subirImagenDrive(req.file.buffer, req.file.mimetype, codigo);
-    await alumno.update({ foto_url: driveUrl });
+    let fotoUrl;
+    if (process.env.IMAGE_SERVICE_URL) {
+      fotoUrl = await subirFotoRemota(req.file.buffer, codigo);
+    } else {
+      fotoUrl = await subirImagenLocal(req.file.buffer, codigo);
+    }
+    await alumno.update({ foto_url: fotoUrl });
 
-    res.json({ ok: true, foto_url: driveUrl });
+    res.json({ ok: true, foto_url: buildFotoUrl(fotoUrl) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -904,7 +951,14 @@ exports.deleteHorario = async (req, res) => {
 
 // ===================== SUBIR EXCEL CON NOTAS =====================
 
-exports.uploadExcelMiddleware = uploadExcel.single('archivo');
+exports.uploadExcelMiddleware = (req, res, next) => {
+  uploadExcel.single('archivo')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+};
 
 exports.subirNotasExcel = async (req, res) => {
   try {
@@ -962,7 +1016,14 @@ exports.subirNotasExcel = async (req, res) => {
 
 // ===================== MATRÍCULA MASIVA POR EXCEL =====================
 
-exports.uploadExcelMatriculaMiddleware = uploadExcel.single('archivo');
+exports.uploadExcelMatriculaMiddleware = (req, res, next) => {
+  uploadExcel.single('archivo')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+};
 
 /** Genera plantilla Excel para matrícula masiva */
 exports.plantillaMasivaExcel = async (_req, res) => {
