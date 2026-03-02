@@ -1,102 +1,150 @@
 /**
  * Email Service — Intranet CEC
+ * Usa Mailtrap Sending API (mailtrap npm SDK).
  *
- * Para activar el envío real de correos, añade estas variables en tu .env:
+ * Variables de entorno (.env):
+ *   MAILTRAP_TOKEN=5f067f4a6a6b6d8b7a908202486609ac
+ *   MAILTRAP_FROM_EMAIL=hello@demomailtrap.co
+ *   MAILTRAP_FROM_NAME=Intranet CEC Camargo
+ *   INTRANET_URL=https://intranet-cec.onrender.com
  *
- *   # Opción A — Gmail (necesitas "Contraseña de aplicación" en myaccount.google.com/security)
- *   SMTP_HOST=smtp.gmail.com
- *   SMTP_PORT=587
- *   SMTP_USER=tucorreo@gmail.com
- *   SMTP_PASS=xxxx xxxx xxxx xxxx
- *   SMTP_FROM="Intranet CEC <tucorreo@gmail.com>"
- *
- *   # Opción B — Mailtrap (pruebas, cuenta gratuita en mailtrap.io)
- *   SMTP_HOST=sandbox.smtp.mailtrap.io
- *   SMTP_PORT=2525
- *   SMTP_USER=<user de mailtrap>
- *   SMTP_PASS=<password de mailtrap>
- *   SMTP_FROM="Intranet CEC <no-reply@cec.edu.pe>"
- *
- *   # Opción C — SendGrid
- *   SMTP_HOST=smtp.sendgrid.net
- *   SMTP_PORT=587
- *   SMTP_USER=apikey
- *   SMTP_PASS=SG.xxxxxxxxxxxxxxxx
- *   SMTP_FROM="Intranet CEC <no-reply@cec.edu.pe>"
- *
- * Sin estas variables el servicio solo imprime en consola (stub mode).
+ * Sin MAILTRAP_TOKEN, el servicio opera en stub mode (solo consola).
  */
-const nodemailer = require('nodemailer');
+const { MailtrapClient } = require('mailtrap');
 
-const smtpConfigured =
-  process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+const TOKEN      = process.env.MAILTRAP_TOKEN;
+const FROM_EMAIL = process.env.MAILTRAP_FROM_EMAIL || 'hello@demomailtrap.co';
+const FROM_NAME  = process.env.MAILTRAP_FROM_NAME  || 'Intranet CEC Camargo';
 
-let transporter = null;
-if (smtpConfigured) {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: parseInt(process.env.SMTP_PORT || '587', 10) === 465,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
+const client = TOKEN ? new MailtrapClient({ token: TOKEN }) : null;
+
+/* ─────────────────────────────────────────────────────────
+   Helper interno para enviar
+───────────────────────────────────────────────────────── */
+async function sendMail({ to, subject, html }) {
+  if (!client) {
+    console.log(`\n📧 [EMAIL STUB] Para: ${to} | Asunto: ${subject}`);
+    console.log('   (Añade MAILTRAP_TOKEN en .env para envío real)\n');
+    return;
+  }
+
+  await client.send({
+    from:     { email: FROM_EMAIL, name: FROM_NAME },
+    to:       [{ email: to }],
+    subject,
+    html,
+    category: 'Intranet CEC',
   });
+
+  console.log(`📧 Email enviado a ${to} — "${subject}"`);
 }
 
-/**
- * Envía las credenciales de acceso a un alumno recién creado.
- * @param {string} email - Correo del apoderado o del alumno
- * @param {string} nombres - Nombre del alumno
- * @param {string} codigo - Código de acceso generado
- * @param {string} passwordRaw - Contraseña en texto plano (antes del hash)
- */
-async function sendCredentials(email, nombres, codigo, passwordRaw) {
-  const subject = '🎓 Tus credenciales de acceso — Intranet CEC';
-  const html = `
-    <div style="font-family: 'Segoe UI', sans-serif; max-width: 520px; margin: auto; border: 1px solid #dee2e6; border-radius: 12px; overflow: hidden;">
-      <div style="background: linear-gradient(135deg, #0a9396, #0d4f5c); padding: 24px 28px; color: white;">
-        <h2 style="margin: 0; font-size: 20px;">Intranet CEC Camargo</h2>
-        <p style="margin: 4px 0 0; font-size: 13px; opacity: 0.8;">Academia de Preparación Universitaria</p>
+/* ─────────────────────────────────────────────────────────
+   Plantilla compartida: cabecera + wrapper
+───────────────────────────────────────────────────────── */
+function wrapEmail(body) {
+  return `
+    <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:540px;margin:auto;border:1px solid #dee2e6;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.08);">
+      <div style="background:linear-gradient(135deg,#0a9396,#0d4f5c);padding:24px 28px;color:white;">
+        <h2 style="margin:0;font-size:20px;font-weight:700;">Intranet CEC Camargo</h2>
+        <p style="margin:4px 0 0;font-size:13px;opacity:0.82;">Academia de Preparación Universitaria</p>
       </div>
-      <div style="padding: 28px;">
-        <p style="color: #374151; font-size: 15px;">Hola <strong>${nombres}</strong>,</p>
-        <p style="color: #6c757d; font-size: 14px;">Tu matrícula ha sido registrada exitosamente. Aquí están tus datos de acceso:</p>
-        <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 10px; padding: 16px 20px; margin: 20px 0;">
-          <p style="margin: 0 0 8px; font-size: 13px; color: #374151;">
-            <strong>🎫 Código de alumno:</strong>
-            <span style="font-family: monospace; font-size: 15px; color: #0d4f5c; margin-left: 8px;">${codigo}</span>
-          </p>
-          <p style="margin: 0; font-size: 13px; color: #374151;">
-            <strong>🔑 Contraseña temporal:</strong>
-            <span style="font-family: monospace; font-size: 15px; color: #0d4f5c; margin-left: 8px;">${passwordRaw}</span>
-          </p>
-        </div>
-        <p style="color: #dc2626; font-size: 12px;">⚠️ Cambia tu contraseña al ingresar por primera vez usando la opción "Recuperar contraseña".</p>
-        <p style="color: #6c757d; font-size: 12px; margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 16px;">
-          Este mensaje fue enviado automáticamente. Por favor no respondas a este correo.
+      <div style="padding:28px 32px;">
+        ${body}
+        <p style="color:#9ca3af;font-size:11px;margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;">
+          Este mensaje fue generado automáticamente — por favor no respondas a este correo.
         </p>
       </div>
     </div>
   `;
+}
 
-  if (!transporter) {
-    // STUB MODE — imprime en consola
+/* ─────────────────────────────────────────────────────────
+   1. Credenciales de acceso (alumno nuevo)
+───────────────────────────────────────────────────────── */
+async function sendCredentials(email, nombres, codigo, passwordRaw) {
+  const subject = '🎓 Tus credenciales de acceso — Intranet CEC';
+  const html = wrapEmail(`
+    <p style="color:#374151;font-size:15px;margin-top:0;">Hola, <strong>${nombres}</strong></p>
+    <p style="color:#6c757d;font-size:14px;line-height:1.6;">
+      Tu registro en <strong>Intranet CEC Camargo</strong> ha sido completado.
+      A continuación encontrarás tus datos de acceso:
+    </p>
+
+    <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:18px 22px;margin:20px 0;">
+      <table style="border-collapse:collapse;width:100%;font-size:13px;color:#374151;">
+        <tr>
+          <td style="padding:5px 0;font-weight:700;width:160px;">🎫 Código de alumno</td>
+          <td style="font-family:monospace;font-size:16px;color:#0d4f5c;font-weight:700;">${codigo}</td>
+        </tr>
+        <tr>
+          <td style="padding:5px 0;font-weight:700;">🔑 Contraseña temporal</td>
+          <td style="font-family:monospace;font-size:16px;color:#0d4f5c;font-weight:700;">${passwordRaw}</td>
+        </tr>
+      </table>
+    </div>
+
+    <p style="color:#dc2626;font-size:12px;margin:0;">
+      ⚠️ Por seguridad, cambia tu contraseña al ingresar por primera vez.
+    </p>
+  `);
+
+  if (!client) {
     console.log('\n📧 [EMAIL STUB] Credenciales para:', email);
-    console.log('   Alumno:', nombres);
-    console.log('   Código:', codigo);
-    console.log('   Password:', passwordRaw);
-    console.log('   (Para enviar emails reales, configura SMTP_HOST, SMTP_USER, SMTP_PASS en .env)\n');
+    console.log('   Alumno:', nombres, '| Código:', codigo, '| Password:', passwordRaw);
     return;
   }
 
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || `"Intranet CEC" <${process.env.SMTP_USER}>`,
-    to: email,
-    subject,
-    html,
-  });
-  console.log(`📧 Credenciales enviadas a ${email}`);
+  await sendMail({ to: email, subject, html });
 }
 
-module.exports = { sendCredentials };
+/* ─────────────────────────────────────────────────────────
+   2. Bienvenida a nuevo ciclo (alumno ya existente)
+───────────────────────────────────────────────────────── */
+async function sendWelcomeCiclo(email, nombres, codigo, cicloNombre) {
+  const intranetUrl = process.env.INTRANET_URL || 'https://intranet-cec.onrender.com';
+  const subject = `📚 Matrícula confirmada — ${cicloNombre} | Intranet CEC`;
+  const html = wrapEmail(`
+    <p style="color:#374151;font-size:15px;margin-top:0;">Hola, <strong>${nombres}</strong></p>
+    <p style="color:#6c757d;font-size:14px;line-height:1.6;">
+      Tu matrícula en el ciclo <strong style="color:#0d4f5c;">${cicloNombre}</strong>
+      ha sido registrada exitosamente. Ya puedes ingresar a la plataforma con tu código habitual.
+    </p>
+
+    <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:18px 22px;margin:20px 0;">
+      <table style="border-collapse:collapse;width:100%;font-size:13px;color:#374151;">
+        <tr>
+          <td style="padding:5px 0;font-weight:700;width:160px;">🎫 Código de alumno</td>
+          <td style="font-family:monospace;font-size:16px;color:#0d4f5c;font-weight:700;">${codigo}</td>
+        </tr>
+        <tr>
+          <td style="padding:5px 0;font-weight:700;">📅 Ciclo matriculado</td>
+          <td style="font-size:14px;color:#0d4f5c;font-weight:600;">${cicloNombre}</td>
+        </tr>
+        <tr>
+          <td style="padding:5px 0;font-weight:700;">🌐 Acceso</td>
+          <td>
+            <a href="${intranetUrl}" style="color:#0a9396;font-size:13px;text-decoration:none;font-weight:600;">
+              ${intranetUrl}
+            </a>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <a href="${intranetUrl}"
+       style="display:inline-block;margin-top:4px;padding:11px 26px;background:linear-gradient(135deg,#0a9396,#0d4f5c);color:white;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;">
+      Ingresar a la Intranet →
+    </a>
+  `);
+
+  if (!client) {
+    console.log('\n📧 [EMAIL STUB] Bienvenida a ciclo para:', email);
+    console.log('   Alumno:', nombres, '| Código:', codigo, '| Ciclo:', cicloNombre);
+    return;
+  }
+
+  await sendMail({ to: email, subject, html });
+}
+
+module.exports = { sendCredentials, sendWelcomeCiclo };

@@ -81,8 +81,17 @@ router.post('/examen/:examenId/notas-excel', auth('admin'), adminCtrl.uploadExce
 router.get('/reportes/alumnos-ciclo', auth('admin'), adminCtrl.reporteAlumnosCiclo);
 router.get('/reportes/orden-merito', auth('admin'), adminCtrl.reporteOrdenMerito);
 
-// Materiales por curso (admin — incluye url_drive)
-router.get('/cursos/:cursoId/materiales', auth('admin'), adminCtrl.getMaterialesPorCurso);
-router.post('/cursos/:cursoId/materiales', auth('admin'), adminCtrl.upsertMaterial);
+// Materiales por curso (admin) — 1:N por semana
+router.get('/cursos/:cursoId/materiales',             auth('admin'), adminCtrl.getMaterialesPorCurso);
+router.post('/cursos/:cursoId/materiales',            auth('admin'), adminCtrl.createMaterial);
+router.put('/cursos/:cursoId/materiales/:id',         auth('admin'), adminCtrl.updateMaterial);
+router.delete('/cursos/:cursoId/materiales/:id',      auth('admin'), adminCtrl.deleteMaterial);
+// Subida de archivo físico al image-service
+router.post(
+  '/cursos/:cursoId/materiales/upload',
+  auth('admin'),
+  adminCtrl.uploadMaterialMiddleware,
+  adminCtrl.uploadMaterial,
+);
 
 module.exports = router;

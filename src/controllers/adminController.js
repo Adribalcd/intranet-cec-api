@@ -8,7 +8,8 @@ const ExcelJS = require('exceljs');
 const { google } = require('googleapis');
 const { Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, Material } = require('../models');
 const { generarToken } = require('../utils/tokenUtils');
-const { sendCredentials } = require('../utils/emailService');
+const { sendCredentials, sendWelcomeCiclo } = require('../utils/emailService');
+const axios = require('axios');
 const { Op } = require('sequelize');
 
 // Carpeta de Drive donde se guardan las fotos de alumnos
@@ -389,11 +390,23 @@ exports.matriculaManual = async (req, res) => {
       return res.status(409).json({ error: `El alumno ya tiene matrícula activa en el ciclo "${matriculaActiva.Ciclo.nombres}"` });
     }
 
+    const ciclo = await Ciclo.findByPk(cicloId);
+
     const matricula = await Matricula.create({
       alumno_id: alumno.id,
       ciclo_id: cicloId,
       fecha_registro: new Date(),
     });
+
+    // Enviar correo de bienvenida al ciclo (si el alumno tiene email registrado)
+    if (alumno.email_alumno) {
+      sendWelcomeCiclo(
+        alumno.email_alumno,
+        alumno.nombres,
+        alumno.codigo,
+        ciclo ? ciclo.nombres : `Ciclo #${cicloId}`,
+      ).catch(() => {});
+    }
 
     res.status(201).json(matricula);
   } catch (error) {
@@ -561,14 +574,21 @@ exports.inhabilitarDia = async (req, res) => {
 
 exports.crearExamen = async (req, res) => {
   try {
-    const { cicloId, semana, tipoExamen, fecha, cantidadPreguntas } = req.body;
+    const {
+      cicloId, semana, tipoExamen, subtipoExamen,
+      fecha, cantidadPreguntas,
+      puntajeBuena, puntajeMala,
+    } = req.body;
 
     const examen = await Examen.create({
-      ciclo_id: cicloId,
+      ciclo_id:               cicloId,
       semana,
-      tipo_examen: tipoExamen,
+      tipo_examen:            tipoExamen,
+      subtipo_examen:         subtipoExamen  || null,
       fecha,
-      cantidad_preguntas: cantidadPreguntas || null,
+      cantidad_preguntas:     cantidadPreguntas || null,
+      puntaje_pregunta_buena: puntajeBuena  != null ? puntajeBuena : 4.00,
+      puntaje_pregunta_mala:  puntajeMala   != null ? puntajeMala  : 1.00,
     });
 
     res.status(201).json(examen);
@@ -624,11 +644,18 @@ exports.getNotasExamen = async (req, res) => {
 exports.registrarCalificaciones = async (req, res) => {
   try {
     const { examenId } = req.params;
-    const calificaciones = req.body; // [ { codigoAlumno, nota } ]
+    const calificaciones = req.body; // [ { codigoAlumno, nota } ] o [ { codigoAlumno, buenas, malas } ]
 
     if (!Array.isArray(calificaciones)) {
       return res.status(400).json({ error: 'Se requiere un array de calificaciones' });
     }
+
+    // Obtener el examen para leer los puntajes configurados
+    const examen = await Examen.findByPk(examenId);
+    if (!examen) return res.status(404).json({ error: 'Examen no encontrado' });
+
+    const pBuena = parseFloat(examen.puntaje_pregunta_buena) || 4.00;
+    const pMala  = parseFloat(examen.puntaje_pregunta_mala)  || 1.00;
 
     // Buscar alumnos por código
     const codigos = calificaciones.map((c) => c.codigoAlumno);
@@ -636,21 +663,37 @@ exports.registrarCalificaciones = async (req, res) => {
     const alumnoMap = {};
     alumnos.forEach((a) => { alumnoMap[a.codigo] = a.id; });
 
-    // Ordenar por nota descendente para calcular puesto
-    const ordenadas = [...calificaciones]
+    // Calcular nota final: si vienen buenas/malas → fórmula; si viene nota → usarla directo
+    const conValor = calificaciones
       .filter((c) => alumnoMap[c.codigoAlumno])
-      .sort((a, b) => b.nota - a.nota);
+      .map((c) => {
+        let valor;
+        let buenas = null;
+        let malas  = null;
+        if (c.buenas != null && c.malas != null) {
+          buenas = parseInt(c.buenas, 10);
+          malas  = parseInt(c.malas,  10);
+          valor  = Math.max(0, (buenas * pBuena) - (malas * pMala));
+        } else {
+          valor = parseFloat(c.nota);
+        }
+        return { codigoAlumno: c.codigoAlumno, valor, buenas, malas };
+      });
+
+    // Ordenar por valor descendente para calcular puesto
+    const ordenadas = [...conValor].sort((a, b) => b.valor - a.valor);
 
     const notas = ordenadas.map((c, index) => ({
       examen_id: parseInt(examenId),
       alumno_id: alumnoMap[c.codigoAlumno],
-      valor: c.nota,
-      puesto: index + 1,
+      valor:     c.valor,
+      buenas:    c.buenas,
+      malas:     c.malas,
+      puesto:    index + 1,
     }));
 
     // Eliminar notas previas del examen si existen
     await Nota.destroy({ where: { examen_id: examenId } });
-
     await Nota.bulkCreate(notas);
 
     res.json({ ok: true, cantidad: notas.length });
@@ -838,21 +881,29 @@ exports.descargarPlantillaNotas = async (req, res) => {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Notas');
 
+    // Si el examen tiene puntajes configurados, incluir columnas de Buenas/Malas
+    const usaPuntajes = examen.puntaje_pregunta_buena != null;
+
     sheet.columns = [
-      { header: 'CODIGO', key: 'codigo', width: 15 },
-      { header: 'NOMBRE_COMPLETO', key: 'nombre', width: 40 },
-      { header: 'NOTA', key: 'nota', width: 10 },
+      { header: 'CODIGO',         key: 'codigo', width: 15 },
+      { header: 'NOMBRE_COMPLETO',key: 'nombre', width: 40 },
+      ...(usaPuntajes
+        ? [
+            { header: `BUENAS (×${examen.puntaje_pregunta_buena})`, key: 'buenas', width: 14 },
+            { header: `MALAS  (×${examen.puntaje_pregunta_mala})`,  key: 'malas',  width: 14 },
+          ]
+        : [{ header: 'NOTA', key: 'nota', width: 10 }]),
     ];
 
     // Estilo del header
     sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D4F5C' } };
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
 
     matriculas.forEach((m) => {
-      sheet.addRow({
-        codigo: m.Alumno.codigo,
-        nombre: `${m.Alumno.apellidos}, ${m.Alumno.nombres}`,
-        nota: '',
-      });
+      const row = { codigo: m.Alumno.codigo, nombre: `${m.Alumno.apellidos}, ${m.Alumno.nombres}` };
+      if (usaPuntajes) { row.buenas = ''; row.malas = ''; } else { row.nota = ''; }
+      sheet.addRow(row);
     });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -973,13 +1024,30 @@ exports.subirNotasExcel = async (req, res) => {
     await workbook.xlsx.load(req.file.buffer);
     const sheet = workbook.worksheets[0];
 
+    // Detectar si la plantilla usa columnas Buenas/Malas (columnas 3 y 4) o Nota (columna 3)
+    const headerRow = sheet.getRow(1);
+    const col3Header = (headerRow.getCell(3).value || '').toString().toUpperCase();
+    const usaBuenasMalas = col3Header.startsWith('BUENAS');
+
+    const pBuena = parseFloat(examen.puntaje_pregunta_buena) || 4.00;
+    const pMala  = parseFloat(examen.puntaje_pregunta_mala)  || 1.00;
+
     const calificaciones = [];
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return; // saltar header
       const codigo = row.getCell(1).value?.toString().trim();
-      const nota = parseFloat(row.getCell(3).value);
-      if (codigo && !isNaN(nota)) {
-        calificaciones.push({ codigo, nota });
+      if (!codigo) return;
+
+      if (usaBuenasMalas) {
+        const buenas = parseInt(row.getCell(3).value, 10);
+        const malas  = parseInt(row.getCell(4).value, 10);
+        if (!isNaN(buenas) && !isNaN(malas)) {
+          const valor = Math.max(0, (buenas * pBuena) - (malas * pMala));
+          calificaciones.push({ codigo, buenas, malas, nota: valor });
+        }
+      } else {
+        const nota = parseFloat(row.getCell(3).value);
+        if (!isNaN(nota)) calificaciones.push({ codigo, buenas: null, malas: null, nota });
       }
     });
 
@@ -1000,7 +1068,9 @@ exports.subirNotasExcel = async (req, res) => {
       .map((c, index) => ({
         examen_id: parseInt(examenId),
         alumno_id: alumnoMap[c.codigo],
-        valor: c.nota,
+        valor:  c.nota,
+        buenas: c.buenas,
+        malas:  c.malas,
         puesto: index + 1,
       }));
 
@@ -1319,14 +1389,14 @@ exports.reporteOrdenMerito = async (req, res) => {
   }
 };
 
-// ===================== MATERIALES POR CURSO (con url_drive) =====================
+// ===================== MATERIALES POR CURSO (1:N — múltiples por semana) =====================
 
 exports.getMaterialesPorCurso = async (req, res) => {
   try {
     const { cursoId } = req.params;
     const materiales = await Material.findAll({
       where: { curso_id: cursoId },
-      order: [['semana', 'ASC']],
+      order: [['semana', 'ASC'], ['id', 'ASC']],
     });
     res.json(materiales);
   } catch (error) {
@@ -1334,34 +1404,143 @@ exports.getMaterialesPorCurso = async (req, res) => {
   }
 };
 
-exports.upsertMaterial = async (req, res) => {
+/**
+ * POST /cursos/:cursoId/materiales
+ * Crea un nuevo material para el curso (sin restricción de unicidad por semana).
+ * Body: { semana, nombre, urlDrive?, urlArchivo?, tipoArchivo? }
+ */
+exports.createMaterial = async (req, res) => {
   try {
     const { cursoId } = req.params;
-    const { semana, nombre, urlDrive, urlArchivo } = req.body;
+    const { semana, nombre, urlDrive, urlArchivo, tipoArchivo } = req.body;
 
     if (!semana || !nombre) {
       return res.status(400).json({ error: 'Se requiere semana y nombre' });
     }
 
-    const [material, created] = await Material.findOrCreate({
-      where: { curso_id: cursoId, semana: parseInt(semana) },
-      defaults: {
-        nombre,
-        url_drive: urlDrive || null,
-        url_archivo: urlArchivo || null,
-      },
+    const material = await Material.create({
+      curso_id:     parseInt(cursoId),
+      semana:       parseInt(semana),
+      nombre,
+      url_drive:    urlDrive    || null,
+      url_archivo:  urlArchivo  || null,
+      tipo_archivo: tipoArchivo || null,
     });
 
-    if (!created) {
-      await material.update({
-        nombre: nombre || material.nombre,
-        url_drive: urlDrive !== undefined ? urlDrive : material.url_drive,
-        url_archivo: urlArchivo !== undefined ? urlArchivo : material.url_archivo,
-      });
-    }
+    res.status(201).json(material);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * PUT /cursos/:cursoId/materiales/:id
+ * Actualiza un material existente.
+ */
+exports.updateMaterial = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { semana, nombre, urlDrive, urlArchivo, tipoArchivo } = req.body;
+
+    const material = await Material.findByPk(id);
+    if (!material) return res.status(404).json({ error: 'Material no encontrado' });
+
+    await material.update({
+      ...(semana       != null && { semana: parseInt(semana) }),
+      ...(nombre       != null && { nombre }),
+      ...(urlDrive     !== undefined && { url_drive:    urlDrive    || null }),
+      ...(urlArchivo   !== undefined && { url_archivo:  urlArchivo  || null }),
+      ...(tipoArchivo  !== undefined && { tipo_archivo: tipoArchivo || null }),
+    });
 
     res.json(material);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
+
+/**
+ * DELETE /cursos/:cursoId/materiales/:id
+ * Elimina un material. Si tiene url_archivo del image-service, lo elimina también.
+ */
+exports.deleteMaterial = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const material = await Material.findByPk(id);
+    if (!material) return res.status(404).json({ error: 'Material no encontrado' });
+
+    // Si el archivo fue subido al image-service, eliminarlo físicamente
+    const imageServiceUrl = process.env.IMAGE_SERVICE_URL;
+    if (imageServiceUrl && material.url_archivo && material.url_archivo.includes('/materiales/')) {
+      const filename = material.url_archivo.split('/materiales/').pop();
+      if (filename) {
+        axios.delete(`${imageServiceUrl}/materiales/${filename}`).catch(() => {});
+      }
+    }
+
+    await material.destroy();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * POST /cursos/:cursoId/materiales/upload
+ * Recibe un archivo (multipart/form-data campo "archivo"), lo envía al image-service
+ * y guarda el registro en la BD.
+ * Body fields adicionales: semana (requerido), nombre (requerido)
+ */
+const multerMemStorage = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } });
+exports.uploadMaterialMiddleware = multerMemStorage.single('archivo');
+
+exports.uploadMaterial = async (req, res) => {
+  try {
+    const { cursoId } = req.params;
+    const { semana, nombre } = req.body;
+
+    if (!semana || !nombre) {
+      return res.status(400).json({ error: 'Se requiere semana y nombre' });
+    }
+
+    const imageServiceUrl = process.env.IMAGE_SERVICE_URL;
+    if (!imageServiceUrl) {
+      return res.status(503).json({ error: 'IMAGE_SERVICE_URL no configurado. Sube el archivo manualmente.' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se recibió ningún archivo' });
+    }
+
+    // Enviar al image-service
+    const FormData = require('form-data');
+    const form = new FormData();
+    form.append('archivo', req.file.buffer, {
+      filename:    req.file.originalname,
+      contentType: req.file.mimetype,
+    });
+    form.append('prefijo', `curso${cursoId}_s${semana}`);
+
+    const response = await axios.post(`${imageServiceUrl}/upload/material`, form, {
+      headers: form.getHeaders(),
+    });
+
+    const { url, tipo } = response.data;
+
+    const material = await Material.create({
+      curso_id:     parseInt(cursoId),
+      semana:       parseInt(semana),
+      nombre,
+      url_archivo:  url,
+      tipo_archivo: tipo,
+      url_drive:    null,
+    });
+
+    res.status(201).json(material);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Alias para compatibilidad con rutas antiguas (upsert → create)
+exports.upsertMaterial = exports.createMaterial;

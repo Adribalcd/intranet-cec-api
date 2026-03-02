@@ -136,19 +136,31 @@ exports.calificaciones = async (req, res) => {
   try {
     const notas = await Nota.findAll({
       where: { alumno_id: req.usuario.id },
-      include: [{ model: Examen, attributes: ['id', 'fecha', 'tipo_examen', 'semana', 'cantidad_preguntas'] }],
+      include: [{
+        model: Examen,
+        attributes: [
+          'id', 'fecha', 'tipo_examen', 'subtipo_examen',
+          'semana', 'cantidad_preguntas',
+          'puntaje_pregunta_buena', 'puntaje_pregunta_mala',
+        ],
+      }],
       order: [[Examen, 'semana', 'ASC']],
     });
 
     res.json(
       notas.map((n) => ({
-        examenId: n.examen_id,
-        fecha: n.Examen?.fecha,
-        nota: n.valor,
-        puesto: n.puesto,
-        tipo: n.Examen?.tipo_examen,
-        semana: n.Examen?.semana,
+        examenId:          n.examen_id,
+        fecha:             n.Examen?.fecha,
+        nota:              n.valor,
+        buenas:            n.buenas,
+        malas:             n.malas,
+        puesto:            n.puesto,
+        tipo:              n.Examen?.tipo_examen,
+        subtipo:           n.Examen?.subtipo_examen,
+        semana:            n.Examen?.semana,
         cantidadPreguntas: n.Examen?.cantidad_preguntas,
+        puntajeBuena:      n.Examen?.puntaje_pregunta_buena,
+        puntajeMala:       n.Examen?.puntaje_pregunta_mala,
       }))
     );
   } catch (error) {
