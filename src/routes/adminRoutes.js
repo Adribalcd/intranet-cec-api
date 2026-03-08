@@ -68,6 +68,9 @@ router.get('/alumno/:codigo/qr', auth('admin'), adminCtrl.descargarQR);
 // Listado de asistencia por día y ciclo
 router.get('/asistencia/listado', auth('admin'), adminCtrl.listadoAsistencia);
 
+// Configuración horario asistencia
+router.get('/asistencia/config', auth('admin'), adminCtrl.getConfigAsistencia);
+
 // Ver notas/ranking de un examen
 router.get('/examen/:examenId/notas', auth('admin'), adminCtrl.getNotasExamen);
 
@@ -80,6 +83,15 @@ router.post('/examen/:examenId/notas-excel', auth('admin'), adminCtrl.uploadExce
 // Reportes Excel
 router.get('/reportes/alumnos-ciclo', auth('admin'), adminCtrl.reporteAlumnosCiclo);
 router.get('/reportes/orden-merito', auth('admin'), adminCtrl.reporteOrdenMerito);
+
+// Anular matrícula (elimina el registro de matrícula)
+router.delete('/matricula/:matriculaId', auth('admin'), adminCtrl.anularMatricula);
+
+// Anular matrícula por codigo de alumno + cicloId
+router.delete('/alumno/:codigo/matricula/:cicloId', auth('admin'), adminCtrl.anularMatricula);
+
+// Eliminar alumno del sistema (cascada: asistencias, matrículas, notas)
+router.delete('/alumno/:codigo/eliminar', auth('admin'), adminCtrl.eliminarAlumno);
 
 // Materiales por curso (admin) — 1:N por semana
 router.get('/cursos/:cursoId/materiales',             auth('admin'), adminCtrl.getMaterialesPorCurso);

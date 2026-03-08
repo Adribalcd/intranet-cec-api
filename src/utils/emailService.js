@@ -1,46 +1,101 @@
 /**
  * Email Service — Intranet CEC
- * Usa Mailtrap Sending API (mailtrap npm SDK).
+ *
+ * Prioridad de transporte:
+ *   1. SMTP propio / Gmail  → SMTP_USER + SMTP_PASS en .env
+ *   2. Mailtrap SDK         → MAILTRAP_TOKEN en .env
+ *   3. Stub mode            → solo console.log (sin credenciales)
  *
  * Variables de entorno (.env):
- *   MAILTRAP_TOKEN=5f067f4a6a6b6d8b7a908202486609ac
+ *
+ *   # Opción A — Gmail o cualquier SMTP
+ *   SMTP_HOST=smtp.gmail.com          # o smtp.office365.com, etc.
+ *   SMTP_PORT=587                     # 587 (STARTTLS) o 465 (SSL)
+ *   SMTP_SECURE=false                 # true solo si PORT=465
+ *   SMTP_USER=tucorreo@gmail.com
+ *   SMTP_PASS=xxxx xxxx xxxx xxxx    # contraseña de aplicación de Google
+ *   FROM_EMAIL=tucorreo@gmail.com
+ *   FROM_NAME=Intranet CEC Camargo
+ *
+ *   # Opción B — Mailtrap (testing / sandbox)
+ *   MAILTRAP_TOKEN=tu_token
  *   MAILTRAP_FROM_EMAIL=hello@demomailtrap.co
  *   MAILTRAP_FROM_NAME=Intranet CEC Camargo
- *   INTRANET_URL=https://intranet-cec.onrender.com
  *
- * Sin MAILTRAP_TOKEN, el servicio opera en stub mode (solo consola).
+ *   INTRANET_URL=https://intranet-cec.onrender.com
  */
+
+const nodemailer     = require('nodemailer');
 const { MailtrapClient } = require('mailtrap');
 
-const TOKEN      = process.env.MAILTRAP_TOKEN;
-const FROM_EMAIL = process.env.MAILTRAP_FROM_EMAIL || 'hello@demomailtrap.co';
-const FROM_NAME  = process.env.MAILTRAP_FROM_NAME  || 'Intranet CEC Camargo';
+/* ── Configuración ────────────────────────────────────────── */
+const FROM_NAME  = process.env.FROM_NAME  || process.env.MAILTRAP_FROM_NAME  || 'Intranet CEC Camargo';
+const FROM_EMAIL = process.env.FROM_EMAIL || process.env.MAILTRAP_FROM_EMAIL || 'noreply@cec.edu.pe';
 
-const client = TOKEN ? new MailtrapClient({ token: TOKEN }) : null;
+/* ── Selección de transporte ──────────────────────────────── */
+
+// 1. SMTP (Gmail, Office365, etc.)
+let smtpTransport = null;
+if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+  smtpTransport = nodemailer.createTransport({
+    host:   process.env.SMTP_HOST   || 'smtp.gmail.com',
+    port:   Number(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+  console.log(`📧 Email: modo SMTP (${process.env.SMTP_HOST || 'smtp.gmail.com'})`);
+}
+
+// 2. Mailtrap SDK
+let mailtrapClient = null;
+if (!smtpTransport && process.env.MAILTRAP_TOKEN) {
+  mailtrapClient = new MailtrapClient({ token: process.env.MAILTRAP_TOKEN });
+  console.log('📧 Email: modo Mailtrap');
+}
+
+if (!smtpTransport && !mailtrapClient) {
+  console.log('📧 Email: modo STUB (configura SMTP_USER+SMTP_PASS o MAILTRAP_TOKEN para envío real)');
+}
 
 /* ─────────────────────────────────────────────────────────
    Helper interno para enviar
 ───────────────────────────────────────────────────────── */
 async function sendMail({ to, subject, html }) {
-  if (!client) {
-    console.log(`\n📧 [EMAIL STUB] Para: ${to} | Asunto: ${subject}`);
-    console.log('   (Añade MAILTRAP_TOKEN en .env para envío real)\n');
+  // 1. SMTP
+  if (smtpTransport) {
+    await smtpTransport.sendMail({
+      from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
+      to,
+      subject,
+      html,
+    });
+    console.log(`📧 Email SMTP enviado a ${to} — "${subject}"`);
     return;
   }
 
-  await client.send({
-    from:     { email: FROM_EMAIL, name: FROM_NAME },
-    to:       [{ email: to }],
-    subject,
-    html,
-    category: 'Intranet CEC',
-  });
+  // 2. Mailtrap
+  if (mailtrapClient) {
+    await mailtrapClient.send({
+      from:     { email: FROM_EMAIL, name: FROM_NAME },
+      to:       [{ email: to }],
+      subject,
+      html,
+      category: 'Intranet CEC',
+    });
+    console.log(`📧 Email Mailtrap enviado a ${to} — "${subject}"`);
+    return;
+  }
 
-  console.log(`📧 Email enviado a ${to} — "${subject}"`);
+  // 3. Stub
+  console.log(`\n📧 [EMAIL STUB] Para: ${to} | Asunto: ${subject}`);
+  console.log('   (Configura SMTP_USER+SMTP_PASS o MAILTRAP_TOKEN para envío real)\n');
 }
 
 /* ─────────────────────────────────────────────────────────
-   Plantilla compartida: cabecera + wrapper
+   Plantilla HTML compartida
 ───────────────────────────────────────────────────────── */
 function wrapEmail(body) {
   return `
@@ -89,12 +144,6 @@ async function sendCredentials(email, nombres, codigo, passwordRaw) {
     </p>
   `);
 
-  if (!client) {
-    console.log('\n📧 [EMAIL STUB] Credenciales para:', email);
-    console.log('   Alumno:', nombres, '| Código:', codigo, '| Password:', passwordRaw);
-    return;
-  }
-
   await sendMail({ to: email, subject, html });
 }
 
@@ -137,12 +186,6 @@ async function sendWelcomeCiclo(email, nombres, codigo, cicloNombre) {
       Ingresar a la Intranet →
     </a>
   `);
-
-  if (!client) {
-    console.log('\n📧 [EMAIL STUB] Bienvenida a ciclo para:', email);
-    console.log('   Alumno:', nombres, '| Código:', codigo, '| Ciclo:', cicloNombre);
-    return;
-  }
 
   await sendMail({ to: email, subject, html });
 }

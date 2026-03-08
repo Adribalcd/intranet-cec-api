@@ -66,27 +66,26 @@ async function subirImagenLocal(buffer, codigo) {
   return `/uploads/fotos/${filename}`;
 }
 
-// helper que envía la imagen a un servicio remoto configurado con IMAGE_SERVICE_URL
+// helper que envía la imagen al image-service (IMAGE_SERVICE_URL)
 async function subirFotoRemota(buffer, codigo) {
   if (!process.env.IMAGE_SERVICE_URL) {
     throw new Error('IMAGE_SERVICE_URL no configurado');
   }
-  const fetch = require('node-fetch');
   const FormData = require('form-data');
-
   const form = new FormData();
-  form.append('foto', buffer, `alumno_${codigo}.jpg`);
+  form.append('foto', buffer, { filename: `alumno_${codigo}.jpg`, contentType: 'image/jpeg' });
   form.append('codigo', codigo);
 
-  const res = await fetch(process.env.IMAGE_SERVICE_URL + '/upload', {
-    method: 'POST',
-    body: form,
-    headers: form.getHeaders(),
-  });
-  const data = await res.json();
+  const response = await axios.post(
+    process.env.IMAGE_SERVICE_URL.replace(/\/+$/, '') + '/upload',
+    form,
+    { headers: form.getHeaders() },
+  );
+  const data = response.data;
   if (!data.ok) {
-    throw new Error(data.error || 'upload failed');
+    throw new Error(data.error || 'Image service upload failed');
   }
+  // El image-service devuelve la URL completa (ej: http://image-service/fotos/alumno_CEC001.jpg)
   return data.url;
 }
 
@@ -312,6 +311,12 @@ exports.registrarAlumno = async (req, res) => {
       alumno: { ...nuevoAlumno.toJSON(), contrasena: undefined },
     });
   } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      const campo = error.errors?.[0]?.path;
+      if (campo === 'codigo') return res.status(409).json({ error: `El código "${codigo}" ya está registrado.` });
+      if (campo === 'email_alumno') return res.status(409).json({ error: `El correo "${email}" ya está registrado. Usa uno diferente o deja el campo vacío.` });
+      return res.status(409).json({ error: 'Ya existe un alumno con ese código o correo electrónico.' });
+    }
     console.error('Error en registrarAlumno:', error.message);
     res.status(500).json({ error: error.message });
   }
@@ -502,44 +507,97 @@ exports.cambiarCicloAlumno = async (req, res) => {
 
 // ===================== ASISTENCIA =====================
 
+// ─── Configuración de horario de asistencia ────────────────────
+// Activo: Lunes a Sábado (0=Dom, 1=Lun...6=Sáb)
+const DIAS_ACTIVOS = [1, 2, 3, 4, 5, 6]; // Lun–Sáb
+// Ventana "a tiempo": 07:00:00 → 08:15:00
+const HORA_INICIO_ASIS = { h: 7,  m: 0  }; // 07:00
+const HORA_FIN_ASIS    = { h: 8,  m: 15 }; // 08:15
+const HORA_LIMITE_ASIS = { h: 23, m: 59 }; // hasta las 23:59 se acepta (tardanza)
+
+function calcularEstadoAsistencia(ahora = new Date()) {
+  const diaSemana = ahora.getDay(); // 0=Dom…6=Sáb
+  if (!DIAS_ACTIVOS.includes(diaSemana)) {
+    return { valido: false, razon: 'El registro de asistencia solo está activo de lunes a sábado.' };
+  }
+  const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
+  const minInicio    = HORA_INICIO_ASIS.h * 60 + HORA_INICIO_ASIS.m; // 420
+  const minFin       = HORA_FIN_ASIS.h   * 60 + HORA_FIN_ASIS.m;    // 495
+  const minLimite    = HORA_LIMITE_ASIS.h * 60 + HORA_LIMITE_ASIS.m;
+
+  if (minutosAhora < minInicio) {
+    return { valido: false, razon: `El registro de asistencia aún no ha comenzado. Inicia a las 07:00 AM.` };
+  }
+  if (minutosAhora > minLimite) {
+    return { valido: false, razon: 'El registro de asistencia ya cerró.' };
+  }
+  const estado = minutosAhora <= minFin ? 'Presente' : 'Tardanza';
+  return { valido: true, estado };
+}
+
 exports.registrarAsistencia = async (req, res) => {
   try {
     const { dni } = req.body;
 
-    const alumno = await Alumno.findOne({ where: { codigo: dni } });
+    const alumno = await Alumno.findOne({
+      where: { codigo: dni },
+      include: [{ model: Matricula, include: [Ciclo], order: [['fecha_registro', 'DESC']], limit: 1 }],
+    });
     if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
 
-    // Buscar matrícula activa para obtener ciclo
+    // Buscar matrícula más reciente
     const matricula = await Matricula.findOne({
       where: { alumno_id: alumno.id },
+      include: [{ model: Ciclo }],
       order: [['fecha_registro', 'DESC']],
     });
-
     if (!matricula) return res.status(400).json({ error: 'Alumno sin matrícula activa' });
 
-    // Verificar registro único por día (ignora días inhabilitados)
-    const hoyInicio = new Date(); hoyInicio.setHours(0, 0, 0, 0);
-    const hoyFin = new Date(); hoyFin.setHours(23, 59, 59, 999);
+    // Calcular estado según hora actual
+    const ahora = new Date();
+    const { valido, razon, estado } = calcularEstadoAsistencia(ahora);
+    if (!valido) return res.status(400).json({ error: razon });
+
+    // Verificar registro único por día
+    const hoyInicio = new Date(ahora); hoyInicio.setHours(0, 0, 0, 0);
+    const hoyFin    = new Date(ahora); hoyFin.setHours(23, 59, 59, 999);
     const existente = await Asistencia.findOne({
       where: {
         alumno_id: alumno.id,
-        ciclo_id: matricula.ciclo_id,
+        ciclo_id:  matricula.ciclo_id,
         fecha_hora: { [Op.between]: [hoyInicio, hoyFin] },
-        estado: { [Op.ne]: 'Inhabilitado' },
+        estado:    { [Op.ne]: 'Inhabilitado' },
       },
     });
     if (existente) {
-      return res.status(409).json({ error: 'El alumno ya tiene asistencia registrada hoy', estado: existente.estado });
+      return res.status(409).json({
+        error: `El alumno ya tiene asistencia registrada hoy (${existente.estado})`,
+        estado: existente.estado,
+      });
     }
 
     const asistencia = await Asistencia.create({
-      alumno_id: alumno.id,
-      ciclo_id: matricula.ciclo_id,
-      fecha_hora: new Date(),
-      estado: 'Presente',
+      alumno_id:     alumno.id,
+      ciclo_id:      matricula.ciclo_id,
+      fecha_hora:    ahora,
+      estado,
+      observaciones: estado === 'Tardanza' ? 'Llegó fuera del horario de 07:00–08:15' : null,
     });
 
-    res.status(201).json(asistencia);
+    const alumnoData = alumno.toJSON();
+    alumnoData.foto_url = buildFotoUrl(alumnoData.foto_url);
+
+    res.status(201).json({
+      asistencia,
+      estado,
+      alumno: {
+        nombres:   alumnoData.nombres,
+        apellidos: alumnoData.apellidos,
+        codigo:    alumnoData.codigo,
+        foto_url:  alumnoData.foto_url,
+        ciclo:     matricula.Ciclo ? { id: matricula.Ciclo.id, nombres: matricula.Ciclo.nombres } : null,
+      },
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1544,3 +1602,70 @@ exports.uploadMaterial = async (req, res) => {
 
 // Alias para compatibilidad con rutas antiguas (upsert → create)
 exports.upsertMaterial = exports.createMaterial;
+
+// ===================== ANULAR MATRÍCULA =====================
+
+exports.anularMatricula = async (req, res) => {
+  try {
+    // Soporta dos modos:
+    // 1. Por matriculaId: DELETE /matricula/:matriculaId
+    // 2. Por codigo+cicloId: DELETE /alumno/:codigo/matricula/:cicloId
+    const { matriculaId, codigo, cicloId } = req.params;
+
+    let matricula;
+    if (matriculaId) {
+      matricula = await Matricula.findByPk(matriculaId, { include: [Alumno, Ciclo] });
+    } else if (codigo && cicloId) {
+      const alumno = await Alumno.findOne({ where: { codigo } });
+      if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+      matricula = await Matricula.findOne({
+        where: { alumno_id: alumno.id, ciclo_id: cicloId },
+        include: [Alumno, Ciclo],
+      });
+    }
+
+    if (!matricula) return res.status(404).json({ error: 'Matrícula no encontrada' });
+
+    const alumnoNombre = matricula.Alumno ? `${matricula.Alumno.nombres} ${matricula.Alumno.apellidos}` : '';
+    const cicloNombre  = matricula.Ciclo  ? matricula.Ciclo.nombres : '';
+
+    await matricula.destroy();
+
+    res.json({ ok: true, mensaje: `Matrícula de "${alumnoNombre}" en "${cicloNombre}" anulada.` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== ELIMINAR ALUMNO DEL SISTEMA =====================
+
+exports.eliminarAlumno = async (req, res) => {
+  try {
+    const codigo = req.params.codigo;
+    const alumno = await Alumno.findOne({ where: { codigo } });
+    if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+
+    const nombre = `${alumno.nombres} ${alumno.apellidos}`;
+
+    // Eliminar en cascada: asistencias, matrículas, notas
+    await Asistencia.destroy({ where: { alumno_id: alumno.id } });
+    await Matricula.destroy({ where: { alumno_id: alumno.id } });
+    await Nota.destroy({ where: { alumno_id: alumno.id } });
+    await alumno.destroy();
+
+    res.json({ ok: true, mensaje: `Alumno "${nombre}" (${codigo}) eliminado del sistema.` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== CONFIG HORARIO ASISTENCIA (para frontend) =====================
+
+exports.getConfigAsistencia = (_req, res) => {
+  res.json({
+    diasActivos: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+    horaInicio: '07:00',
+    horaFinPuntual: '08:15',
+    horaLimite: '23:59',
+  });
+};
