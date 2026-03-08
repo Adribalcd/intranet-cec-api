@@ -139,9 +139,9 @@ async function seed() {
     await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
 
     const TABLAS = [
-      'notas', 'asistencias', 'materiales', 'examenes',
-      'matriculas', 'horario_cursos', 'cursos',
-      'alumnos', 'ciclos', 'admins',
+      'nota', 'asistencia', 'material', 'examen',
+      'matricula', 'horario_curso', 'curso',
+      'alumno', 'ciclo', 'admin',
     ];
     for (const tabla of TABLAS) {
       await sequelize.query(`TRUNCATE TABLE \`${tabla}\``);
