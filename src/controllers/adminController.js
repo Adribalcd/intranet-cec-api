@@ -1554,7 +1554,7 @@ exports.deleteMaterial = async (req, res) => {
  */
 const multerMemStorage = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 30 * 1024 * 1024 },
+  limits: { fileSize: 200 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = [
       'application/pdf',
@@ -1605,7 +1605,7 @@ exports.uploadMaterial = async (req, res) => {
     const response = await axios.post(
       `${imageServiceUrl.replace(/\/+$/, '')}/upload/material`,
       form,
-      { headers: form.getHeaders() },
+      { headers: form.getHeaders(), timeout: 300000 }, // 5 min
     );
 
     const { url, tipo } = response.data;

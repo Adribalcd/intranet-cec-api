@@ -22,7 +22,7 @@
  *   MAILTRAP_FROM_EMAIL=hello@demomailtrap.co
  *   MAILTRAP_FROM_NAME=Intranet CEC Camargo
  *
- *   INTRANET_URL=https://intranet-cec.onrender.com
+ *   INTRANET_URL=https://intranet.cecamargo.cloud
  */
 
 const nodemailer     = require('nodemailer');
@@ -118,6 +118,7 @@ function wrapEmail(body) {
    1. Credenciales de acceso (alumno nuevo)
 ───────────────────────────────────────────────────────── */
 async function sendCredentials(email, nombres, codigo, passwordRaw) {
+  const intranetUrl = process.env.INTRANET_URL || 'https://intranet.cecamargo.cloud';
   const subject = '🎓 Tus credenciales de acceso — Intranet CEC';
   const html = wrapEmail(`
     <p style="color:#374151;font-size:15px;margin-top:0;">Hola, <strong>${nombres}</strong></p>
@@ -136,10 +137,23 @@ async function sendCredentials(email, nombres, codigo, passwordRaw) {
           <td style="padding:5px 0;font-weight:700;">🔑 Contraseña temporal</td>
           <td style="font-family:monospace;font-size:16px;color:#0d4f5c;font-weight:700;">${passwordRaw}</td>
         </tr>
+        <tr>
+          <td style="padding:5px 0;font-weight:700;">🌐 Acceso</td>
+          <td>
+            <a href="${intranetUrl}/login" style="color:#0a9396;font-size:13px;text-decoration:none;font-weight:600;">
+              ${intranetUrl}/login
+            </a>
+          </td>
+        </tr>
       </table>
     </div>
 
-    <p style="color:#dc2626;font-size:12px;margin:0;">
+    <a href="${intranetUrl}/login"
+       style="display:inline-block;margin-top:8px;padding:11px 26px;background:linear-gradient(135deg,#0a9396,#0d4f5c);color:white;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;">
+      Ingresar a la Intranet →
+    </a>
+
+    <p style="color:#dc2626;font-size:12px;margin-top:16px;">
       ⚠️ Por seguridad, cambia tu contraseña al ingresar por primera vez.
     </p>
   `);
@@ -151,7 +165,7 @@ async function sendCredentials(email, nombres, codigo, passwordRaw) {
    2. Bienvenida a nuevo ciclo (alumno ya existente)
 ───────────────────────────────────────────────────────── */
 async function sendWelcomeCiclo(email, nombres, codigo, cicloNombre) {
-  const intranetUrl = process.env.INTRANET_URL || 'https://intranet-cec.onrender.com';
+  const intranetUrl = process.env.INTRANET_URL || 'https://intranet.cecamargo.cloud';
   const subject = `📚 Matrícula confirmada — ${cicloNombre} | Intranet CEC`;
   const html = wrapEmail(`
     <p style="color:#374151;font-size:15px;margin-top:0;">Hola, <strong>${nombres}</strong></p>
