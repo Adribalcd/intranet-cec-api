@@ -1549,28 +1549,47 @@ exports.deleteMaterial = async (req, res) => {
 /**
  * POST /cursos/:cursoId/materiales/upload
  * Recibe un archivo (multipart/form-data campo "archivo"), lo envía al image-service
- * y guarda el registro en la BD.
- * Body fields adicionales: semana (requerido), nombre (requerido)
+ * y crea o actualiza el registro en la BD.
+ * Body fields: semana (requerido), nombre (requerido), materialId (opcional — si se pasa, actualiza en vez de crear)
  */
-const multerMemStorage = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } });
+const multerMemStorage = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      'application/pdf',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    ];
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    // Algunos navegadores envían PDFs con mimetype vacío o incorrecto según extensión
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExts = ['.pdf', '.ppt', '.pptx', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    if (allowedExts.includes(ext)) return cb(null, true);
+    cb(new Error(`Tipo de archivo no permitido: ${file.mimetype || ext}. Usa PDF, PPT, DOC o imágenes.`));
+  },
+});
 exports.uploadMaterialMiddleware = multerMemStorage.single('archivo');
 
 exports.uploadMaterial = async (req, res) => {
   try {
     const { cursoId } = req.params;
-    const { semana, nombre } = req.body;
+    const { semana, nombre, materialId } = req.body;
 
     if (!semana || !nombre) {
       return res.status(400).json({ error: 'Se requiere semana y nombre' });
     }
 
-    const imageServiceUrl = process.env.IMAGE_SERVICE_URL;
-    if (!imageServiceUrl) {
-      return res.status(503).json({ error: 'IMAGE_SERVICE_URL no configurado. Sube el archivo manualmente.' });
-    }
-
     if (!req.file) {
       return res.status(400).json({ error: 'No se recibió ningún archivo' });
+    }
+
+    const imageServiceUrl = process.env.IMAGE_SERVICE_URL;
+    if (!imageServiceUrl) {
+      return res.status(503).json({ error: 'IMAGE_SERVICE_URL no configurado. Configura IMAGE_SERVICE_URL en .env para subir archivos.' });
     }
 
     // Enviar al image-service
@@ -1578,16 +1597,33 @@ exports.uploadMaterial = async (req, res) => {
     const form = new FormData();
     form.append('archivo', req.file.buffer, {
       filename:    req.file.originalname,
-      contentType: req.file.mimetype,
+      contentType: req.file.mimetype || 'application/octet-stream',
+      knownLength: req.file.buffer.length,
     });
     form.append('prefijo', `curso${cursoId}_s${semana}`);
 
-    const response = await axios.post(`${imageServiceUrl}/upload/material`, form, {
-      headers: form.getHeaders(),
-    });
+    const response = await axios.post(
+      `${imageServiceUrl.replace(/\/+$/, '')}/upload/material`,
+      form,
+      { headers: form.getHeaders() },
+    );
 
     const { url, tipo } = response.data;
 
+    // Si se pasó materialId, actualizar el registro existente
+    if (materialId) {
+      const mat = await Material.findByPk(parseInt(materialId));
+      if (!mat) return res.status(404).json({ error: 'Material no encontrado' });
+      await mat.update({
+        semana:       parseInt(semana),
+        nombre,
+        url_archivo:  url,
+        tipo_archivo: tipo,
+      });
+      return res.json(mat);
+    }
+
+    // Crear nuevo registro
     const material = await Material.create({
       curso_id:     parseInt(cursoId),
       semana:       parseInt(semana),
@@ -1599,7 +1635,8 @@ exports.uploadMaterial = async (req, res) => {
 
     res.status(201).json(material);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error en uploadMaterial:', error.message);
+    res.status(500).json({ error: error.response?.data?.error || error.message });
   }
 };
 
