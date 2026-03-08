@@ -668,12 +668,14 @@ exports.getExamenesPorCiclo = async (req, res) => {
     const examenes = await Examen.findAll({
       where: { ciclo_id: cicloId },
       order: [['fecha', 'DESC']],
-      include: [{ model: Nota, attributes: [] }],
       attributes: {
-        include: [[Examen.sequelize.fn('COUNT', Examen.sequelize.col('Notas.id')), 'cantidadNotas']],
+        include: [
+          [
+            Examen.sequelize.literal('(SELECT COUNT(*) FROM nota WHERE nota.examen_id = `Examen`.`id`)'),
+            'cantidadNotas',
+          ],
+        ],
       },
-      group: ['Examen.id'],
-      subQuery: false,
     });
     res.json(examenes);
   } catch (error) {
