@@ -14,20 +14,25 @@ function buildFotoUrl(url) {
 exports.login = async (req, res) => {
   try {
     const { usuario, contrasena } = req.body;
+    console.log(`[login] intento → usuario: ${usuario}`);
     const alumno = await Alumno.findOne({
       where: { codigo: usuario },
       attributes: ['id', 'codigo', 'contrasena'],
     });
     if (!alumno) {
+      console.log(`[login] usuario no encontrado: ${usuario}`);
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
     const valid = await bcrypt.compare(contrasena, alumno.contrasena);
     if (!valid) {
+      console.log(`[login] contraseña incorrecta para: ${usuario}`);
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
+    console.log(`[login] OK → alumno id:${alumno.id} codigo:${alumno.codigo}`);
     const token = generarToken({ id: alumno.id, rol: 'alumno' });
     res.json({ token });
   } catch (error) {
+    console.error('[login] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -56,6 +61,7 @@ exports.perfil = async (req, res) => {
       fotoUrl: buildFotoUrl(alumno.foto_url),
     });
   } catch (error) {
+    console.error('[perfil] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -72,6 +78,7 @@ exports.getQr = async (req, res) => {
     res.setHeader('Content-Disposition', `inline; filename=qr_${alumno.codigo}.png`);
     res.send(qrBuffer);
   } catch (error) {
+    console.error('[getQr] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -106,6 +113,7 @@ exports.horario = async (req, res) => {
 
     res.json(horario);
   } catch (error) {
+    console.error('[horario] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -127,6 +135,7 @@ exports.asistencia = async (req, res) => {
       }))
     );
   } catch (error) {
+    console.error('[asistencia] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -164,6 +173,7 @@ exports.calificaciones = async (req, res) => {
       }))
     );
   } catch (error) {
+    console.error('[calificaciones] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -215,6 +225,7 @@ exports.rankingSalon = async (req, res) => {
       distribucion,
     });
   } catch (error) {
+    console.error('[rankingSalon] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -241,6 +252,7 @@ exports.cursos = async (req, res) => {
       }))
     );
   } catch (error) {
+    console.error('[cursos] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -266,6 +278,7 @@ exports.materiales = async (req, res) => {
       }))
     );
   } catch (error) {
+    console.error('[materiales] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -276,6 +289,7 @@ exports.logout = async (req, res) => {
     invalidarToken(req.token);
     res.json({ ok: true });
   } catch (error) {
+    console.error('[logout] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -294,6 +308,7 @@ exports.recuperarPassword = async (req, res) => {
     console.log(`Token de recuperación para ${email}: ${token}`);
     res.json({ ok: true });
   } catch (error) {
+    console.error('[recuperarPassword] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
@@ -319,6 +334,7 @@ exports.resetPassword = async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
+    console.error('[resetPassword] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };

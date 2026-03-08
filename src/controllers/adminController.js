@@ -68,6 +68,7 @@ async function subirImagenLocal(buffer, codigo) {
 
 // helper que envía la imagen al image-service (IMAGE_SERVICE_URL)
 async function subirFotoRemota(buffer, codigo) {
+  console.log('[subirFotoRemota] IMAGE_SERVICE_URL:', process.env.IMAGE_SERVICE_URL || '(no configurado)');
   if (!process.env.IMAGE_SERVICE_URL) {
     throw new Error('IMAGE_SERVICE_URL no configurado');
   }
@@ -76,27 +77,32 @@ async function subirFotoRemota(buffer, codigo) {
   form.append('foto', buffer, { filename: `alumno_${codigo}.jpg`, contentType: 'image/jpeg' });
   form.append('codigo', codigo);
 
-  const response = await axios.post(
-    process.env.IMAGE_SERVICE_URL.replace(/\/+$/, '') + '/upload',
-    form,
-    { headers: form.getHeaders() },
-  );
+  const endpoint = process.env.IMAGE_SERVICE_URL.replace(/\/+$/, '') + '/upload';
+  console.log('[subirFotoRemota] POST →', endpoint, '| buffer size:', buffer.length);
+
+  const response = await axios.post(endpoint, form, { headers: form.getHeaders(), timeout: 30000 });
+  console.log('[subirFotoRemota] respuesta status:', response.status, '| data:', response.data);
+
   const data = response.data;
   if (!data.ok) {
     throw new Error(data.error || 'Image service upload failed');
   }
-  // El image-service devuelve la URL completa (ej: http://image-service/fotos/alumno_CEC001.jpg)
+  console.log('[subirFotoRemota] URL devuelta:', data.url);
   return data.url;
 }
 
 // buildFotoUrl: las URLs de Drive ya son https:// y pasan directo
 const BASE_URL = (process.env.BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
+console.log('[adminController] BASE_URL:', BASE_URL);
+console.log('[adminController] IMAGE_SERVICE_URL:', process.env.IMAGE_SERVICE_URL || '(no configurado)');
 
 function buildFotoUrl(fotoUrl) {
   if (!fotoUrl) return null;
   if (fotoUrl.startsWith('http')) return fotoUrl;
   const p = fotoUrl.startsWith('/') ? fotoUrl : `/${fotoUrl}`;
-  return `${BASE_URL}${p}`;
+  const full = `${BASE_URL}${p}`;
+  console.log('[buildFotoUrl] fotoUrl:', fotoUrl, '→', full);
+  return full;
 }
 
 // Multer en memoria (el archivo va a Drive, no al disco)
@@ -794,6 +800,7 @@ exports.uploadFotoMiddleware = (req, res, next) => {
 exports.subirFotoAlumno = async (req, res) => {
   try {
     const { codigo } = req.params;
+    console.log('[subirFotoAlumno] codigo:', codigo, '| file:', req.file ? { size: req.file.size, mimetype: req.file.mimetype } : null);
     const alumno = await Alumno.findOne({ where: { codigo } });
     if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
 
@@ -801,14 +808,23 @@ exports.subirFotoAlumno = async (req, res) => {
 
     let fotoUrl;
     if (process.env.IMAGE_SERVICE_URL) {
+      console.log('[subirFotoAlumno] usando image-service remoto');
       fotoUrl = await subirFotoRemota(req.file.buffer, codigo);
     } else {
+      console.log('[subirFotoAlumno] usando almacenamiento local');
       fotoUrl = await subirImagenLocal(req.file.buffer, codigo);
     }
+    console.log('[subirFotoAlumno] fotoUrl guardada en BD:', fotoUrl);
     await alumno.update({ foto_url: fotoUrl });
 
-    res.json({ ok: true, foto_url: buildFotoUrl(fotoUrl) });
+    const urlFinal = buildFotoUrl(fotoUrl);
+    console.log('[subirFotoAlumno] URL final enviada al cliente:', urlFinal);
+    res.json({ ok: true, foto_url: urlFinal });
   } catch (error) {
+    console.error('[subirFotoAlumno] ERROR:', error.message);
+    if (error.response) {
+      console.error('[subirFotoAlumno] respuesta del image-service:', error.response.status, error.response.data);
+    }
     res.status(500).json({ error: error.message });
   }
 };
