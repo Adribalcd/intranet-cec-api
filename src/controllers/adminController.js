@@ -276,9 +276,8 @@ exports.deleteCurso = async (req, res) => {
 // ===================== REGISTRO DE ALUMNO =====================
 
 exports.registrarAlumno = async (req, res) => {
+  const { codigo, nombres, apellidos, email, celular, dni, fechaNacimiento } = req.body;
   try {
-    const { codigo, nombres, apellidos, email, celular, dni, fechaNacimiento } = req.body;
-
     if (!codigo || !nombres || !apellidos) {
       return res.status(400).json({ error: 'Se requiere codigo, nombres y apellidos' });
     }
@@ -1153,7 +1152,7 @@ exports.uploadExcelMatriculaMiddleware = (req, res, next) => {
   });
 };
 
-/** Genera plantilla Excel para matrícula masiva */
+/** Genera plantilla Excel para matrícula masiva (sin columna CicloId — el ciclo se selecciona en el formulario) */
 exports.plantillaMasivaExcel = async (_req, res) => {
   try {
     const workbook = new ExcelJS.Workbook();
@@ -1166,14 +1165,17 @@ exports.plantillaMasivaExcel = async (_req, res) => {
       { header: 'FechaNacimiento', key: 'fechaNacimiento', width: 18 },
       { header: 'Celular', key: 'celular', width: 14 },
       { header: 'Email', key: 'email', width: 30 },
-      { header: 'CicloId', key: 'cicloId', width: 10 },
     ];
 
-    // Fila de instrucciones
     sheet.getRow(1).font = { bold: true };
-    sheet.addRow(['12345678', 'Juan Carlos', 'Pérez García', '2005-03-15', '999888777', 'apoderado@email.com', '1']);
-    sheet.addRow(['87654321', 'María', 'López Ríos', '2006-07-20', '987654321', '', '1']);
-    sheet.addRow(['11223344', '', '', '', '', '', '1']); // Solo DNI (alumno ya existe)
+    // Instrucción: si el alumno ya existe, basta con el DNI; el ciclo se elige en el formulario
+    sheet.addRow(['12345678', 'Juan Carlos', 'Pérez García', '2005-03-15', '999888777', 'apoderado@email.com']);
+    sheet.addRow(['87654321', 'María', 'López Ríos', '2006-07-20', '987654321', '']);
+    sheet.addRow(['11223344', '', '', '', '', '']); // Solo DNI (alumno ya existe)
+
+    // Añadir nota explicativa en la fila 5
+    sheet.getRow(5).getCell(1).value = '← Si el alumno ya existe, solo llena el DNI. Si es nuevo, completa todos los campos.';
+    sheet.getRow(5).getCell(1).font = { italic: true, color: { argb: 'FF888888' } };
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename=plantilla_matricula_masiva.xlsx');
@@ -1205,8 +1207,9 @@ exports.matriculaMasivaExcel = async (req, res) => {
       const fechaNac   = row.getCell(4).value?.toString().trim() || '';
       const celular    = row.getCell(5).value?.toString().trim() || '';
       const email      = row.getCell(6).value?.toString().trim() || '';
-      const cicloId    = row.getCell(7).value ? parseInt(row.getCell(7).value) : cicloIdDefault;
-      if (dni) filas.push({ rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId });
+      // cicloId siempre viene del formulario (cicloIdDefault), no del Excel
+      const cicloId    = cicloIdDefault;
+      if (dni && dni.length > 0) filas.push({ rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId });
     });
 
     if (filas.length === 0) return res.status(400).json({ error: 'No se encontraron filas válidas' });
