@@ -6,7 +6,7 @@ const multer = require('multer');
 const QRCode = require('qrcode');
 const ExcelJS = require('exceljs');
 const { google } = require('googleapis');
-const { Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, Material } = require('../models');
+const { sequelize, Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, Material } = require('../models');
 const { generarToken } = require('../utils/tokenUtils');
 const { sendCredentials, sendWelcomeCiclo } = require('../utils/emailService');
 const axios = require('axios');
@@ -668,6 +668,12 @@ exports.getExamenesPorCiclo = async (req, res) => {
     const examenes = await Examen.findAll({
       where: { ciclo_id: cicloId },
       order: [['fecha', 'DESC']],
+      include: [{ model: Nota, attributes: [] }],
+      attributes: {
+        include: [[Examen.sequelize.fn('COUNT', Examen.sequelize.col('Notas.id')), 'cantidadNotas']],
+      },
+      group: ['Examen.id'],
+      subQuery: false,
     });
     res.json(examenes);
   } catch (error) {
@@ -755,9 +761,19 @@ exports.registrarCalificaciones = async (req, res) => {
       puesto:    index + 1,
     }));
 
-    // Eliminar notas previas del examen si existen
-    await Nota.destroy({ where: { examen_id: examenId } });
-    await Nota.bulkCreate(notas);
+    // Upsert por alumno dentro de una transacción (evita duplicados)
+    await sequelize.transaction(async (t) => {
+      for (const nota of notas) {
+        const [record, created] = await Nota.findOrCreate({
+          where: { examen_id: nota.examen_id, alumno_id: nota.alumno_id },
+          defaults: nota,
+          transaction: t,
+        });
+        if (!created) {
+          await record.update({ valor: nota.valor, buenas: nota.buenas, malas: nota.malas, puesto: nota.puesto }, { transaction: t });
+        }
+      }
+    });
 
     res.json({ ok: true, cantidad: notas.length });
   } catch (error) {
@@ -1147,9 +1163,19 @@ exports.subirNotasExcel = async (req, res) => {
         puesto: index + 1,
       }));
 
-    // Eliminar notas previas y registrar nuevas
-    await Nota.destroy({ where: { examen_id: examenId } });
-    await Nota.bulkCreate(notasValidas);
+    // Upsert por alumno dentro de una transacción (evita duplicados)
+    await sequelize.transaction(async (t) => {
+      for (const nota of notasValidas) {
+        const [record, created] = await Nota.findOrCreate({
+          where: { examen_id: nota.examen_id, alumno_id: nota.alumno_id },
+          defaults: nota,
+          transaction: t,
+        });
+        if (!created) {
+          await record.update({ valor: nota.valor, buenas: nota.buenas, malas: nota.malas, puesto: nota.puesto }, { transaction: t });
+        }
+      }
+    });
 
     res.json({ ok: true, cantidad: notasValidas.length });
   } catch (error) {
