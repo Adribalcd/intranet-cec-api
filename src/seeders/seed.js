@@ -213,8 +213,8 @@ async function seed() {
     for (let i = 1; i <= 25; i++) {
       const nombres   = NOMBRES[i - 1];
       const apellidos = `${APELLIDOS[rnd(0, 12)]} ${APELLIDOS[rnd(13, 24)]}`;
-      const codigo    = `CEC${String(i).padStart(3, '0')}`;
       const dni       = String(40000000 + i * 1337);
+      const codigo    = dni;
       const celular   = `9${rnd(10, 99)}${rnd(100000, 999999)}`;
       const anio      = rnd(2000, 2006);
       const mes       = String(rnd(1, 12)).padStart(2, '0');
