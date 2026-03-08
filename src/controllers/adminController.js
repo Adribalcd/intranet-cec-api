@@ -1344,7 +1344,7 @@ exports.cierreDia = async (req, res) => {
         alumno_id,
         ciclo_id: parseInt(cicloId),
         fecha_hora: fechaTarget,
-        estado: 'FALTO',
+        estado: 'Falta',
         observaciones: `Cierre de día ${fechaStr}`,
       }));
       await Asistencia.bulkCreate(registrosFalto);
