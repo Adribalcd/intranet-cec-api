@@ -216,7 +216,7 @@ async function seed() {
       const dni       = String(40000000 + i * 1337);
       const codigo    = dni;
       const celular   = `9${rnd(10, 99)}${rnd(100000, 999999)}`;
-      const anio      = rnd(2000, 2006);
+      const anio      = 2000 + ((i - 1) % 7); // determinístico: 2000-2006 ciclando
       const mes       = String(rnd(1, 12)).padStart(2, '0');
       const dia       = String(rnd(1, 28)).padStart(2, '0');
       const email     = `${nombres.toLowerCase().replace(/[áéíóú]/g, c => ({ á:'a',é:'e',í:'i',ó:'o',ú:'u' })[c] || c)}.${apellidos.split(' ')[0].toLowerCase().replace(/[áéíóú]/g, c => ({ á:'a',é:'e',í:'i',ó:'o',ú:'u' })[c] || c)}${i}@gmail.com`;
@@ -409,8 +409,8 @@ async function seed() {
     console.log('\n🔐 CREDENCIALES ADMIN:');
     console.log('   Usuario   : admin.cec');
     console.log('   Contraseña: CEC@dm1n#2025!');
-    console.log('\n👨‍🎓 ALUMNOS (primeros 5):');
-    for (const { alumno, passRaw } of alumnos.slice(0, 5)) {
+    console.log('\n👨‍🎓 ALUMNOS (código = DNI):');
+    for (const { alumno, passRaw } of alumnos) {
       console.log(`   ${alumno.codigo}  |  ${alumno.nombres} ${alumno.apellidos}  |  pass: ${passRaw}`);
     }
     console.log('\n📚 CICLOS:');
