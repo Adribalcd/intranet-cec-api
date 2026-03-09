@@ -343,16 +343,17 @@ exports.getPagosAlumnoPublico = async (req, res) => {
           concepto: c, 
           pago, 
           estado,
-          // Forzamos conversión a booleano para evitar fallos de evaluación en el front
-          puedePagarOnline: Boolean(c.permite_pago_online && config && (config.permite_transferencia || config.permite_yape_plin))
+          // Convertimos explícitamente a número para manejar TINYINT o BOOLEAN de MySQL
+          puedePagarOnline: Boolean(Number(c.permite_pago_online) === 1 && config && 
+                           (Number(config.permite_transferencia) === 1 || Number(config.permite_yape_plin) === 1))
         };
       });
 
       // Exponer solo campos de config necesarios para el alumno
       const safeConfig = {
-        permitePagarOnline: config.permite_transferencia || config.permite_yape_plin,
-        permite_transferencia: config.permite_transferencia,
-        permite_yape_plin:     config.permite_yape_plin,
+        permitePagarOnline: (Number(config.permite_transferencia) === 1 || Number(config.permite_yape_plin) === 1),
+        permite_transferencia: Number(config.permite_transferencia) === 1,
+        permite_yape_plin:     Number(config.permite_yape_plin) === 1,
         bcp_cuenta:            config.bcp_cuenta,
         bcp_cci:               config.bcp_cci,
         bbva_cuenta:           config.bbva_cuenta,
