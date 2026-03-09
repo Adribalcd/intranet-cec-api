@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const router = Router();
 const adminCtrl = require('../controllers/adminController');
+const pagosCtrl = require('../controllers/pagosController');
 const auth = require('../middlewares/authMiddleware');
 
 // Pública
@@ -83,6 +84,14 @@ router.post('/examen/:examenId/notas-excel', auth('admin'), adminCtrl.uploadExce
 // Reportes Excel
 router.get('/reportes/alumnos-ciclo', auth('admin'), adminCtrl.reporteAlumnosCiclo);
 router.get('/reportes/orden-merito', auth('admin'), adminCtrl.reporteOrdenMerito);
+
+// Configuración de pagos online por ciclo
+router.get('/ciclos/:cicloId/config-pagos', auth('admin'), pagosCtrl.getConfigPagos);
+router.put('/ciclos/:cicloId/config-pagos', auth('admin'), pagosCtrl.upsertConfigPagos);
+
+// Gestión de pagos online
+router.get('/pagos/pendientes-online', auth('admin'), pagosCtrl.getPagosOnlinePendientes);
+router.put('/pago/:id/confirmar', auth('admin'), pagosCtrl.confirmarPago);
 
 // Anular matrícula (elimina el registro de matrícula)
 router.delete('/matricula/:matriculaId', auth('admin'), adminCtrl.anularMatricula);

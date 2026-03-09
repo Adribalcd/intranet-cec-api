@@ -142,6 +142,7 @@ async function seed() {
 
     const TABLAS = [
       'nota', 'asistencia', 'material', 'examen',
+      'pago', 'concepto_pago', 'config_pagos_ciclo',
       'matricula', 'horario_curso', 'curso',
       'alumno', 'ciclo', 'admin',
     ];
@@ -153,14 +154,23 @@ async function seed() {
     await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
     // Ampliar columna valor para escala 0–2000 (DECIMAL 7,3)
     await sequelize.query('ALTER TABLE `nota` MODIFY COLUMN `valor` DECIMAL(7,3)');
+    
     // Crear/recrear tablas de pagos
+    await ConfigPagosCiclo.sync({ force: true });
     await ConceptoPago.sync({ force: true });
     await Pago.sync({ force: true });
-    await ConfigPagosCiclo.sync({ force: true });
+
     // Columna suspendido en alumno
     try { await sequelize.query("ALTER TABLE `alumno` ADD COLUMN `suspendido` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
     try { await sequelize.query("ALTER TABLE `alumno` MODIFY COLUMN `suspendido` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
-    console.log('✓ Todas las tablas vaciadas\n');
+
+    // Nuevas columnas en concepto_pago y pago para online
+    try { await sequelize.query("ALTER TABLE `concepto_pago` ADD COLUMN `permite_pago_online` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
+    try { await sequelize.query("ALTER TABLE `pago` ADD COLUMN `estado` ENUM('confirmado', 'pendiente', 'rechazado') NOT NULL DEFAULT 'confirmado'"); } catch (_) {}
+    try { await sequelize.query("ALTER TABLE `pago` ADD COLUMN `tipo_registro` ENUM('admin', 'online') NOT NULL DEFAULT 'admin'"); } catch (_) {}
+    try { await sequelize.query("ALTER TABLE `pago` MODIFY COLUMN `metodo_pago` ENUM('Yape', 'Plin', 'Transferencia', 'Efectivo') NOT NULL"); } catch (_) {}
+
+    console.log('✓ Todas las tablas vaciadas y alteradas\n');
 
     // ──────────────────────────────────────────────────────────
     // 1. ADMIN
