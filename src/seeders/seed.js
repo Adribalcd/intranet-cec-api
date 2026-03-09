@@ -18,9 +18,10 @@ const {
 const rnd  = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-function calcNota(buenas, malas, total) {
-  const raw = (buenas * 4 - malas * 1) / (total * 4) * 20;
-  return Math.max(0, Math.min(20, parseFloat(raw.toFixed(2))));
+// Escala 0–2000: buena = +20 pts, mala = -1.125 pts
+function calcNota(buenas, malas) {
+  const raw = buenas * 20 - malas * 1.125;
+  return Math.max(0, Math.min(2000, parseFloat(raw.toFixed(3))));
 }
 
 // ── Datos de alumnos ──────────────────────────────────────────
@@ -266,10 +267,10 @@ async function seed() {
     //              Intensivo I: 8 semanas × 4 tipos
     // ──────────────────────────────────────────────────────────
     const tiposExamen = [
-      { tipo: 'Simulacro', subtipo: null,          preguntas: 100, buena: 4, mala: 1 },
-      { tipo: 'Práctica',  subtipo: 'Matemática',  preguntas: 25,  buena: 4, mala: 1 },
-      { tipo: 'Práctica',  subtipo: 'Ciencias',    preguntas: 30,  buena: 4, mala: 1 },
-      { tipo: 'Práctica',  subtipo: 'Letras',      preguntas: 20,  buena: 4, mala: 1 },
+      { tipo: 'Simulacro', subtipo: null,          preguntas: 100, buena: 20, mala: 1.125 },
+      { tipo: 'Práctica',  subtipo: 'Matemática',  preguntas: 25,  buena: 20, mala: 1.125 },
+      { tipo: 'Práctica',  subtipo: 'Ciencias',    preguntas: 30,  buena: 20, mala: 1.125 },
+      { tipo: 'Práctica',  subtipo: 'Letras',      preguntas: 20,  buena: 20, mala: 1.125 },
     ];
 
     async function crearExamenes(ciclo, nSemanas, baseDate) {
@@ -311,7 +312,7 @@ async function seed() {
         for (const { alumno } of alumnosList) {
           const buenas = rnd(Math.floor(q * 0.3), Math.floor(q * 0.95));
           const malas  = rnd(0, Math.floor((q - buenas) * 0.5));
-          const valor  = calcNota(buenas, malas, q);
+          const valor  = calcNota(buenas, malas);
           filas.push({ examen_id: examen.id, alumno_id: alumno.id, valor, buenas, malas, puesto: 0 });
         }
         filas.sort((a, b) => b.valor - a.valor);
