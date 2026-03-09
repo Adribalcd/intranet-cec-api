@@ -343,17 +343,25 @@ exports.getPagosAlumnoPublico = async (req, res) => {
           concepto: c, 
           pago, 
           estado,
-          // Convertimos explícitamente a número para manejar TINYINT o BOOLEAN de MySQL
-          puedePagarOnline: Boolean(Number(c.permite_pago_online) === 1 && config && 
-                           (Number(config.permite_transferencia) === 1 || Number(config.permite_yape_plin) === 1))
+          // Forzamos la lógica para que acepte tanto booleano como 1/0
+          puedePagarOnline: !!(
+            (c.permite_pago_online == 1 || c.permite_pago_online == true) && 
+            config && (
+              config.permite_transferencia == 1 || config.permite_transferencia == true ||
+              config.permite_yape_plin == 1 || config.permite_yape_plin == true
+            )
+          )
         };
       });
 
       // Exponer solo campos de config necesarios para el alumno
       const safeConfig = {
-        permitePagarOnline: (Number(config.permite_transferencia) === 1 || Number(config.permite_yape_plin) === 1),
-        permite_transferencia: Number(config.permite_transferencia) === 1,
-        permite_yape_plin:     Number(config.permite_yape_plin) === 1,
+        permitePagarOnline: !!(
+          config.permite_transferencia == 1 || config.permite_transferencia == true ||
+          config.permite_yape_plin == 1 || config.permite_yape_plin == true
+        ),
+        permite_transferencia: !!(config.permite_transferencia == 1 || config.permite_transferencia == true),
+        permite_yape_plin:     !!(config.permite_yape_plin == 1 || config.permite_yape_plin == true),
         bcp_cuenta:            config.bcp_cuenta,
         bcp_cci:               config.bcp_cci,
         bbva_cuenta:           config.bbva_cuenta,
