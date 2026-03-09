@@ -295,21 +295,14 @@ exports.getPagosAlumnoPublico = async (req, res) => {
 
       // Obtenemos todos los pagos del alumno para este ciclo
       const pagos = await Pago.findAll({
-        include: [{ 
-          model: ConceptoPago, 
-          as: 'Concepto', 
-          where: { ciclo_id: ciclo.id }, 
-          required: true 
-        }],
         where: { alumno_id: alumnoId },
       });
       
       const pagoMap = {};
       pagos.forEach(p => { 
-        // Si el pago es visible para el alumno O es un pago online (pendiente/en revisión/rechazado)
-        if (p.visible_alumno || p.tipo_registro === 'online' || p.estado !== 'confirmado') {
-          pagoMap[p.concepto_id] = p; 
-        }
+        // Eliminamos el filtro de visibilidad y el where redundante para asegurar 
+        // que capturamos TODOS los pagos asociados a los conceptos del ciclo
+        pagoMap[p.concepto_id] = p; 
       });
 
       const items = conceptos.map(c => {
