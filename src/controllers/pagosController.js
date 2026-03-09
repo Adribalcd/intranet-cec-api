@@ -319,8 +319,24 @@ exports.getPagosAlumnoPublico = async (req, res) => {
             estado = 'rechazado';
           }
         } else {
-          // Solo marcamos como vencido si NO existe un pago (o no está confirmado)
-          estado = (vence && vence < hoy) ? 'vencido' : 'pendiente';
+          // Si no hay pago registrado:
+          // 1. Si ya pasó la fecha de vencimiento -> Vencido
+          if (vence && vence < hoy) {
+            estado = 'vencido';
+          } 
+          // 2. Si es de un mes/año específico y ya estamos en ese mes/año -> Pendiente
+          else if (c.mes && c.anio) {
+            const primerDiaMes = new Date(c.anio, c.mes - 1, 1);
+            if (hoy >= primerDiaMes) {
+              estado = 'pendiente';
+            } else {
+              estado = 'proximo'; // O podrías dejarlo como invisible hasta que llegue el mes
+            }
+          }
+          // 3. Por defecto si no tiene mes o aún no llega la fecha -> Pendiente
+          else {
+            estado = 'pendiente';
+          }
         }
         
         return { 
@@ -328,7 +344,7 @@ exports.getPagosAlumnoPublico = async (req, res) => {
           pago, 
           estado,
           // Indicamos si puede pagar online este concepto específico
-          puedePagarOnline: c.permite_pago_online && (config.permite_transferencia || config.permite_yape_plin)
+          puedePagarOnline: !!(c.permite_pago_online && (config.permite_transferencia || config.permite_yape_plin))
         };
       });
 
