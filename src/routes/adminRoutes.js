@@ -119,5 +119,11 @@ router.put('/pago/:id',                          auth('admin'), pagosCtrl.update
 router.delete('/pago/:id',                       auth('admin'), pagosCtrl.deletePago);
 router.put('/pago/:id/visibilidad',              auth('admin'), pagosCtrl.toggleVisibilidad);
 router.put('/alumno/:codigo/suspender',          auth('admin'), pagosCtrl.toggleSuspension);
+// Config pagos por ciclo
+router.get('/ciclos/:cicloId/config-pagos',      auth('admin'), pagosCtrl.getConfigPagos);
+router.put('/ciclos/:cicloId/config-pagos',      auth('admin'), pagosCtrl.upsertConfigPagos);
+// Pagos online pendientes y confirmación
+router.get('/pagos/pendientes-online',           auth('admin'), pagosCtrl.getPagosOnlinePendientes);
+router.put('/pago/:id/confirmar',                auth('admin'), pagosCtrl.confirmarPago);
 
 module.exports = router;

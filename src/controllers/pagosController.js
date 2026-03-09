@@ -1,4 +1,6 @@
-const { ConceptoPago, Pago, Alumno, Matricula, Ciclo } = require('../models');
+const { ConceptoPago, Pago, Alumno, Matricula, Ciclo, ConfigPagosCiclo } = require('../models');
+
+// ── Conceptos ──────────────────────────────────────────────────
 
 exports.getConceptos = async (req, res) => {
   try {
@@ -38,6 +40,31 @@ exports.deleteConcepto = async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
+// ── Config de pagos por ciclo ──────────────────────────────────
+
+exports.getConfigPagos = async (req, res) => {
+  try {
+    const { cicloId } = req.params;
+    const config = await ConfigPagosCiclo.findOne({ where: { ciclo_id: cicloId } });
+    res.json(config || {});
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+exports.upsertConfigPagos = async (req, res) => {
+  try {
+    const { cicloId } = req.params;
+    let config = await ConfigPagosCiclo.findOne({ where: { ciclo_id: cicloId } });
+    if (config) {
+      await config.update(req.body);
+    } else {
+      config = await ConfigPagosCiclo.create({ ...req.body, ciclo_id: cicloId });
+    }
+    res.json(config);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+// ── Pagos por alumno (admin) ───────────────────────────────────
+
 exports.getPagosAlumno = async (req, res) => {
   try {
     const { alumnoId, cicloId } = req.params;
@@ -70,7 +97,7 @@ exports.getResumenCiclo = async (req, res) => {
     });
     const pagoMap = {};
     pagos.forEach(p => { pagoMap[`${p.alumno_id}_${p.concepto_id}`] = p; });
-    const alumnos = matriculas.map(m => {
+    const alumnosList = matriculas.map(m => {
       const a = m.Alumno;
       const pagosList = conceptos.map(c => ({
         concepto_id: c.id, descripcion: c.descripcion,
@@ -80,17 +107,58 @@ exports.getResumenCiclo = async (req, res) => {
       return {
         alumno: { id: a.id, codigo: a.codigo, nombres: a.nombres, apellidos: a.apellidos, suspendido: a.suspendido },
         pagos: pagosList,
-        total_pagados: pagosList.filter(p => p.pago).length,
+        total_pagados: pagosList.filter(p => p.pago && p.pago.estado === 'confirmado').length,
         total_conceptos: conceptos.length,
       };
     });
-    res.json({ conceptos, alumnos });
+    res.json({ conceptos, alumnos: alumnosList });
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
+// ── Pagos online pendientes (admin) ───────────────────────────
+
+exports.getPagosOnlinePendientes = async (req, res) => {
+  try {
+    const where = { tipo_registro: 'online', estado: 'pendiente' };
+    const pagos = await Pago.findAll({
+      where,
+      include: [
+        { model: Alumno, attributes: ['id', 'codigo', 'nombres', 'apellidos'] },
+        { model: ConceptoPago, as: 'Concepto',
+          include: [{ model: Ciclo, attributes: ['id', 'nombres'] }] },
+      ],
+      order: [['id', 'DESC']],
+    });
+    res.json(pagos);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+exports.confirmarPago = async (req, res) => {
+  try {
+    const pago = await Pago.findByPk(req.params.id);
+    if (!pago) return res.status(404).json({ error: 'No encontrado' });
+    const { accion, observaciones } = req.body;
+    const updates = {};
+    if (observaciones !== undefined) updates.observaciones = observaciones;
+    if (accion === 'confirmar') {
+      updates.estado = 'confirmado';
+      updates.visible_alumno = true;
+    } else if (accion === 'rechazar') {
+      updates.estado = 'rechazado';
+      updates.visible_alumno = false;
+    } else {
+      return res.status(400).json({ error: 'accion debe ser "confirmar" o "rechazar"' });
+    }
+    await pago.update(updates);
+    res.json(pago);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+// ── CRUD pagos (admin) ─────────────────────────────────────────
+
 exports.registrarPago = async (req, res) => {
   try {
-    const pago = await Pago.create(req.body);
+    const pago = await Pago.create({ ...req.body, estado: 'confirmado', tipo_registro: 'admin' });
     res.status(201).json(pago);
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
@@ -131,32 +199,144 @@ exports.toggleSuspension = async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
+// ── Pago online (alumno) ───────────────────────────────────────
+
+exports.pagoOnline = async (req, res) => {
+  try {
+    const alumnoId = req.usuario.id;
+    const { concepto_id, monto_pagado, metodo_pago, numero_operacion, opcion_pago } = req.body;
+
+    if (!concepto_id || !monto_pagado || !metodo_pago) {
+      return res.status(400).json({ error: 'Faltan campos requeridos' });
+    }
+
+    // Verificar concepto
+    const concepto = await ConceptoPago.findByPk(concepto_id);
+    if (!concepto) return res.status(404).json({ error: 'Concepto no encontrado' });
+    if (!concepto.permite_pago_online) {
+      return res.status(403).json({ error: 'Este concepto no permite pago en línea' });
+    }
+
+    // Verificar matrícula
+    const matricula = await Matricula.findOne({ where: { alumno_id: alumnoId, ciclo_id: concepto.ciclo_id } });
+    if (!matricula) return res.status(403).json({ error: 'No estás matriculado en este ciclo' });
+
+    // Verificar config del ciclo
+    const config = await ConfigPagosCiclo.findOne({ where: { ciclo_id: concepto.ciclo_id } });
+    if (!config || (!config.permite_transferencia && !config.permite_yape_plin)) {
+      return res.status(403).json({ error: 'Los pagos en línea no están habilitados para este ciclo' });
+    }
+
+    // Verificar método permitido
+    if (metodo_pago === 'Transferencia' && !config.permite_transferencia) {
+      return res.status(403).json({ error: 'La transferencia bancaria no está habilitada' });
+    }
+    if ((metodo_pago === 'Yape' || metodo_pago === 'Plin') && !config.permite_yape_plin) {
+      return res.status(403).json({ error: 'Yape/Plin no está habilitado' });
+    }
+
+    // Revisar pago existente
+    const existing = await Pago.findOne({ where: { alumno_id: alumnoId, concepto_id } });
+    if (existing) {
+      if (existing.estado === 'confirmado') {
+        return res.status(400).json({ error: 'Este pago ya fue confirmado' });
+      }
+      if (existing.estado === 'pendiente') {
+        return res.status(400).json({ error: 'Ya tienes un pago pendiente de revisión para este concepto' });
+      }
+      // Rechazado: eliminar y volver a crear
+      await existing.destroy();
+    }
+
+    const pago = await Pago.create({
+      alumno_id: alumnoId,
+      concepto_id,
+      monto_pagado,
+      metodo_pago,
+      numero_operacion: numero_operacion || null,
+      opcion_pago: opcion_pago || 'opcion_1',
+      fecha_pago: new Date().toISOString().slice(0, 10),
+      visible_alumno: false,
+      estado: 'pendiente',
+      tipo_registro: 'online',
+    });
+
+    res.status(201).json(pago);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+// ── Estado de cuenta alumno (público) ─────────────────────────
+
 exports.getPagosAlumnoPublico = async (req, res) => {
   try {
     const alumnoId = req.usuario.id;
     const matriculas = await Matricula.findAll({
       where: { alumno_id: alumnoId },
-      include: [{ model: Ciclo, attributes: ['id', 'nombres', 'fecha_fin'] }],
+      include: [{
+        model: Ciclo,
+        attributes: ['id', 'nombres', 'fecha_fin'],
+        include: [{ model: ConfigPagosCiclo }],
+      }],
     });
-    const cicloIds = matriculas.map(m => m.ciclo_id);
-    if (!cicloIds.length) return res.json([]);
-    const conceptos = await ConceptoPago.findAll({
-      where: { ciclo_id: cicloIds },
-      include: [{ model: Ciclo }],
-      order: [['orden', 'ASC'], ['id', 'ASC']],
-    });
-    const pagos = await Pago.findAll({
-      where: { alumno_id: alumnoId, visible_alumno: true },
-    });
-    const pagoMap = {};
-    pagos.forEach(p => { pagoMap[p.concepto_id] = p; });
+
+    const result = [];
     const hoy = new Date();
-    const items = conceptos.map(c => {
-      const pago = pagoMap[c.id] || null;
-      const vence = c.fecha_vencimiento ? new Date(c.fecha_vencimiento) : null;
-      const vencido = !pago && vence && vence < hoy;
-      return { concepto: c, pago, estado: pago ? 'pagado' : (vencido ? 'vencido' : 'pendiente') };
-    });
-    res.json(items);
+
+    for (const matricula of matriculas) {
+      const ciclo = matricula.Ciclo;
+      const config = ciclo.ConfigPagosCiclo || null;
+      if (!config || !config.pagos_visible) continue;
+
+      const conceptos = await ConceptoPago.findAll({
+        where: { ciclo_id: ciclo.id },
+        order: [['orden', 'ASC'], ['id', 'ASC']],
+      });
+
+      const pagos = await Pago.findAll({
+        include: [{ model: ConceptoPago, as: 'Concepto', where: { ciclo_id: ciclo.id }, required: true }],
+        where: { alumno_id: alumnoId },
+      });
+      const pagoMap = {};
+      pagos.forEach(p => { pagoMap[p.concepto_id] = p; });
+
+      const items = conceptos.map(c => {
+        const pago = pagoMap[c.id] || null;
+        // Para pagos online pendientes/rechazados los mostramos aunque visible_alumno=false
+        const vence = c.fecha_vencimiento ? new Date(c.fecha_vencimiento + 'T12:00:00') : null;
+        let estado;
+        if (pago) {
+          if (pago.estado === 'confirmado') estado = 'pagado';
+          else if (pago.estado === 'pendiente') estado = 'en_revision';
+          else estado = 'rechazado';
+        } else {
+          estado = vence && vence < hoy ? 'vencido' : 'pendiente';
+        }
+        return { concepto: c, pago, estado };
+      });
+
+      // Exponer solo campos de config necesarios para el alumno
+      const safeConfig = {
+        permite_transferencia: config.permite_transferencia,
+        permite_yape_plin:     config.permite_yape_plin,
+        bcp_cuenta:            config.bcp_cuenta,
+        bcp_cci:               config.bcp_cci,
+        bbva_cuenta:           config.bbva_cuenta,
+        bbva_cci:              config.bbva_cci,
+        interbank_cuenta:      config.interbank_cuenta,
+        interbank_cci:         config.interbank_cci,
+        yape_numero:           config.yape_numero,
+        plin_numero:           config.plin_numero,
+        yape_qr_url:           config.yape_qr_url,
+        plin_qr_url:           config.plin_qr_url,
+      };
+
+      result.push({
+        ciclo: { id: ciclo.id, nombres: ciclo.nombres },
+        config: safeConfig,
+        items,
+      });
+    }
+
+    res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
 };

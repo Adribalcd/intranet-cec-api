@@ -12,7 +12,7 @@ const {
   sequelize,
   Admin, Alumno, Ciclo, Curso, HorarioCurso,
   Matricula, Examen, Nota, Asistencia, Material,
-  ConceptoPago, Pago,
+  ConceptoPago, Pago, ConfigPagosCiclo,
 } = require('../models');
 
 // ── Utilidades ────────────────────────────────────────────────
@@ -156,6 +156,7 @@ async function seed() {
     // Crear/recrear tablas de pagos
     await ConceptoPago.sync({ force: true });
     await Pago.sync({ force: true });
+    await ConfigPagosCiclo.sync({ force: true });
     // Columna suspendido en alumno
     try { await sequelize.query("ALTER TABLE `alumno` ADD COLUMN `suspendido` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
     try { await sequelize.query("ALTER TABLE `alumno` MODIFY COLUMN `suspendido` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
@@ -215,6 +216,25 @@ async function seed() {
       fecha_vencimiento: '2025-03-20', orden: 10,
     });
     console.log('✓ Conceptos de pago creados para Ciclo Anual');
+
+    // ── Config de pagos online para Ciclo Anual SM ─────────────
+    await ConfigPagosCiclo.create({
+      ciclo_id:              cicloAnual.id,
+      pagos_visible:         true,
+      permite_transferencia: true,
+      permite_yape_plin:     true,
+      bcp_cuenta:            '191-12345678-0-12',
+      bcp_cci:               '00219100123456780120',
+      bbva_cuenta:           '0011-0111-01-00123456',
+      bbva_cci:              '01100111010001234560',
+      interbank_cuenta:      null,
+      interbank_cci:         null,
+      yape_numero:           '924513040',
+      plin_numero:           '924513040',
+      yape_qr_url:           null,
+      plin_qr_url:           null,
+    });
+    console.log('✓ Config de pagos online creada para Ciclo Anual');
 
     // ──────────────────────────────────────────────────────────
     // 3. CURSOS + HORARIOS

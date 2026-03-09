@@ -20,5 +20,6 @@ router.get('/cursos', auth('alumno'), alumnoCtrl.cursos);
 router.get('/cursos/:idCurso/materiales', auth('alumno'), alumnoCtrl.materiales);
 router.post('/logout', auth('alumno'), alumnoCtrl.logout);
 router.get('/pagos', auth('alumno'), pagosCtrl.getPagosAlumnoPublico);
+router.post('/pago-online', auth('alumno'), pagosCtrl.pagoOnline);
 
 module.exports = router;

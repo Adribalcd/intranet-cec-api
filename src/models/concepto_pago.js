@@ -12,8 +12,9 @@ const ConceptoPago = sequelize.define('ConceptoPago', {
   etiqueta_opcion_1: { type: DataTypes.STRING(60), defaultValue: 'Tarifa A' },
   monto_opcion_2:    { type: DataTypes.DECIMAL(8, 2), allowNull: true },
   etiqueta_opcion_2: { type: DataTypes.STRING(60), allowNull: true },
-  fecha_vencimiento: { type: DataTypes.DATEONLY, allowNull: true },
-  orden:             { type: DataTypes.INTEGER, defaultValue: 0 },
+  fecha_vencimiento:    { type: DataTypes.DATEONLY, allowNull: true },
+  orden:                { type: DataTypes.INTEGER, defaultValue: 0 },
+  permite_pago_online:  { type: DataTypes.BOOLEAN, defaultValue: false },
 }, { tableName: 'concepto_pago', timestamps: false });
 
 module.exports = ConceptoPago;
