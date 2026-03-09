@@ -147,30 +147,25 @@ async function seed() {
       'alumno', 'ciclo', 'admin',
     ];
     for (const tabla of TABLAS) {
-      await sequelize.query(`TRUNCATE TABLE \`${tabla}\``);
-      console.log(`   TRUNCATE ${tabla}`);
+      try {
+        await sequelize.query(`TRUNCATE TABLE \`${tabla}\``);
+        console.log(`   TRUNCATE ${tabla}`);
+      } catch (e) {
+        console.log(`   ⚠ No se pudo truncar ${tabla} (puede que no exista)`);
+      }
     }
 
     await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+
+    // Sincronizar todos los modelos primero para asegurar que las tablas existan
+    console.log('🔄 Sincronizando modelos...');
+    await sequelize.sync({ alter: true });
+
     // Ampliar columna valor para escala 0–2000 (DECIMAL 7,3)
     await sequelize.query('ALTER TABLE `nota` MODIFY COLUMN `valor` DECIMAL(7,3)');
     
-    // Crear/recrear tablas de pagos
-    await ConfigPagosCiclo.sync({ force: true });
-    await ConceptoPago.sync({ force: true });
-    await Pago.sync({ force: true });
-
-    // Columna suspendido en alumno
-    try { await sequelize.query("ALTER TABLE `alumno` ADD COLUMN `suspendido` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
-    try { await sequelize.query("ALTER TABLE `alumno` MODIFY COLUMN `suspendido` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
-
-    // Nuevas columnas en concepto_pago y pago para online
-    try { await sequelize.query("ALTER TABLE `concepto_pago` ADD COLUMN `permite_pago_online` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
-    try { await sequelize.query("ALTER TABLE `pago` ADD COLUMN `estado` ENUM('confirmado', 'pendiente', 'rechazado') NOT NULL DEFAULT 'confirmado'"); } catch (_) {}
-    try { await sequelize.query("ALTER TABLE `pago` ADD COLUMN `tipo_registro` ENUM('admin', 'online') NOT NULL DEFAULT 'admin'"); } catch (_) {}
-    try { await sequelize.query("ALTER TABLE `pago` MODIFY COLUMN `metodo_pago` ENUM('Yape', 'Plin', 'Transferencia', 'Efectivo') NOT NULL"); } catch (_) {}
-
-    console.log('✓ Todas las tablas vaciadas y alteradas\n');
+    // Configurar modelos para el resto del seed
+    console.log('✓ Todas las tablas vaciadas y sincronizadas\n');
 
     // ──────────────────────────────────────────────────────────
     // 1. ADMIN
