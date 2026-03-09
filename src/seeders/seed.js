@@ -150,6 +150,8 @@ async function seed() {
     }
 
     await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+    // Ampliar columna valor para escala 0–2000 (DECIMAL 7,3)
+    await sequelize.query('ALTER TABLE `nota` MODIFY COLUMN `valor` DECIMAL(7,3)');
     console.log('✓ Todas las tablas vaciadas\n');
 
     // ──────────────────────────────────────────────────────────
