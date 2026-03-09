@@ -99,15 +99,22 @@ exports.getResumenCiclo = async (req, res) => {
     pagos.forEach(p => { pagoMap[`${p.alumno_id}_${p.concepto_id}`] = p; });
     const alumnosList = matriculas.map(m => {
       const a = m.Alumno;
-      const pagosList = conceptos.map(c => ({
-        concepto_id: c.id, descripcion: c.descripcion,
-        fecha_vencimiento: c.fecha_vencimiento, monto_opcion_1: c.monto_opcion_1,
-        pago: pagoMap[`${a.id}_${c.id}`] || null,
-      }));
+      const pagosList = conceptos.map(c => {
+        const p = pagoMap[`${a.id}_${c.id}`];
+        // Solo incluimos el pago si está confirmado o es un pago presencial (que se asume confirmado al registrarse)
+        const pagoConfirmado = p && p.estado === 'confirmado' ? p : null;
+        return {
+          concepto_id: c.id, 
+          descripcion: c.descripcion,
+          fecha_vencimiento: c.fecha_vencimiento, 
+          monto_opcion_1: c.monto_opcion_1,
+          pago: pagoConfirmado,
+        };
+      });
       return {
         alumno: { id: a.id, codigo: a.codigo, nombres: a.nombres, apellidos: a.apellidos, suspendido: a.suspendido },
         pagos: pagosList,
-        total_pagados: pagosList.filter(p => p.pago && p.pago.estado === 'confirmado').length,
+        total_pagados: pagosList.filter(p => p.pago).length,
         total_conceptos: conceptos.length,
       };
     });
