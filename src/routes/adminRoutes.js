@@ -85,14 +85,6 @@ router.post('/examen/:examenId/notas-excel', auth('admin'), adminCtrl.uploadExce
 router.get('/reportes/alumnos-ciclo', auth('admin'), adminCtrl.reporteAlumnosCiclo);
 router.get('/reportes/orden-merito', auth('admin'), adminCtrl.reporteOrdenMerito);
 
-// Configuración de pagos online por ciclo
-router.get('/ciclos/:cicloId/config-pagos', auth('admin'), pagosCtrl.getConfigPagos);
-router.put('/ciclos/:cicloId/config-pagos', auth('admin'), pagosCtrl.upsertConfigPagos);
-
-// Gestión de pagos online
-router.get('/pagos/pendientes-online', auth('admin'), pagosCtrl.getPagosOnlinePendientes);
-router.put('/pago/:id/confirmar', auth('admin'), pagosCtrl.confirmarPago);
-
 // Anular matrícula (elimina el registro de matrícula)
 router.delete('/matricula/:matriculaId', auth('admin'), adminCtrl.anularMatricula);
 
@@ -116,7 +108,6 @@ router.post(
 );
 
 // ── Pagos ──────────────────────────────────────────────────────
-const pagosCtrl = require('../controllers/pagosController');
 router.get('/ciclos/:cicloId/conceptos-pago',    auth('admin'), pagosCtrl.getConceptos);
 router.post('/ciclos/:cicloId/conceptos-pago',   auth('admin'), pagosCtrl.createConcepto);
 router.put('/concepto-pago/:id',                 auth('admin'), pagosCtrl.updateConcepto);
@@ -128,11 +119,13 @@ router.put('/pago/:id',                          auth('admin'), pagosCtrl.update
 router.delete('/pago/:id',                       auth('admin'), pagosCtrl.deletePago);
 router.put('/pago/:id/visibilidad',              auth('admin'), pagosCtrl.toggleVisibilidad);
 router.put('/alumno/:codigo/suspender',          auth('admin'), pagosCtrl.toggleSuspension);
-// Config pagos por ciclo
-router.get('/ciclos/:cicloId/config-pagos',      auth('admin'), pagosCtrl.getConfigPagos);
-router.put('/ciclos/:cicloId/config-pagos',      auth('admin'), pagosCtrl.upsertConfigPagos);
-// Pagos online pendientes y confirmación
-router.get('/pagos/pendientes-online',           auth('admin'), pagosCtrl.getPagosOnlinePendientes);
-router.put('/pago/:id/confirmar',                auth('admin'), pagosCtrl.confirmarPago);
+
+// Configuración de pagos online por ciclo
+router.get('/ciclos/:cicloId/config-pagos', auth('admin'), pagosCtrl.getConfigPagos);
+router.put('/ciclos/:cicloId/config-pagos', auth('admin'), pagosCtrl.upsertConfigPagos);
+
+// Gestión de pagos online pendientes y confirmación
+router.get('/pagos/pendientes-online', auth('admin'), pagosCtrl.getPagosOnlinePendientes);
+router.put('/pago/:id/confirmar', auth('admin'), pagosCtrl.confirmarPago);
 
 module.exports = router;
