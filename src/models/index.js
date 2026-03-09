@@ -9,6 +9,8 @@ const Examen = require('./examen');
 const Nota = require('./nota');
 const Asistencia = require('./asistencia');
 const Matricula = require('./matricula');
+const ConceptoPago = require('./concepto_pago');
+const Pago = require('./pago');
 
 // Asociaciones
 Ciclo.hasMany(Curso, { foreignKey: 'ciclo_id' });
@@ -41,6 +43,13 @@ Matricula.belongsTo(Alumno, { foreignKey: 'alumno_id' });
 Ciclo.hasMany(Matricula, { foreignKey: 'ciclo_id' });
 Matricula.belongsTo(Ciclo, { foreignKey: 'ciclo_id' });
 
+Ciclo.hasMany(ConceptoPago, { foreignKey: 'ciclo_id' });
+ConceptoPago.belongsTo(Ciclo, { foreignKey: 'ciclo_id' });
+ConceptoPago.hasMany(Pago, { foreignKey: 'concepto_id', as: 'Pagos' });
+Pago.belongsTo(ConceptoPago, { foreignKey: 'concepto_id', as: 'Concepto' });
+Alumno.hasMany(Pago, { foreignKey: 'alumno_id' });
+Pago.belongsTo(Alumno, { foreignKey: 'alumno_id' });
+
 module.exports = {
   sequelize,
   Alumno,
@@ -53,4 +62,6 @@ module.exports = {
   Nota,
   Asistencia,
   Matricula,
+  ConceptoPago,
+  Pago,
 };

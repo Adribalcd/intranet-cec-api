@@ -17,7 +17,7 @@ exports.login = async (req, res) => {
     console.log(`[login] intento → usuario: ${usuario}`);
     const alumno = await Alumno.findOne({
       where: { codigo: usuario },
-      attributes: ['id', 'codigo', 'contrasena'],
+      attributes: ['id', 'codigo', 'contrasena', 'suspendido'],
     });
     if (!alumno) {
       console.log(`[login] usuario no encontrado: ${usuario}`);
@@ -27,6 +27,9 @@ exports.login = async (req, res) => {
     if (!valid) {
       console.log(`[login] contraseña incorrecta para: ${usuario}`);
       return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+    if (alumno.suspendido) {
+      return res.status(403).json({ error: 'Tu cuenta ha sido suspendida. Contacta con soporte: +51 924 513 040' });
     }
     console.log(`[login] OK → alumno id:${alumno.id} codigo:${alumno.codigo}`);
     const token = generarToken({ id: alumno.id, rol: 'alumno' });

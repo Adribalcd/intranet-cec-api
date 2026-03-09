@@ -106,4 +106,18 @@ router.post(
   adminCtrl.uploadMaterial,
 );
 
+// ── Pagos ──────────────────────────────────────────────────────
+const pagosCtrl = require('../controllers/pagosController');
+router.get('/ciclos/:cicloId/conceptos-pago',    auth('admin'), pagosCtrl.getConceptos);
+router.post('/ciclos/:cicloId/conceptos-pago',   auth('admin'), pagosCtrl.createConcepto);
+router.put('/concepto-pago/:id',                 auth('admin'), pagosCtrl.updateConcepto);
+router.delete('/concepto-pago/:id',              auth('admin'), pagosCtrl.deleteConcepto);
+router.get('/ciclos/:cicloId/resumen-pagos',     auth('admin'), pagosCtrl.getResumenCiclo);
+router.get('/alumnos/:alumnoId/pagos/:cicloId',  auth('admin'), pagosCtrl.getPagosAlumno);
+router.post('/pago',                             auth('admin'), pagosCtrl.registrarPago);
+router.put('/pago/:id',                          auth('admin'), pagosCtrl.updatePago);
+router.delete('/pago/:id',                       auth('admin'), pagosCtrl.deletePago);
+router.put('/pago/:id/visibilidad',              auth('admin'), pagosCtrl.toggleVisibilidad);
+router.put('/alumno/:codigo/suspender',          auth('admin'), pagosCtrl.toggleSuspension);
+
 module.exports = router;

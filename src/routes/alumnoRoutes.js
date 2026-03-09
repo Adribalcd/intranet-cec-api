@@ -2,6 +2,7 @@ const { Router } = require('express');
 const router = Router();
 const alumnoCtrl = require('../controllers/alumnoController');
 const auth = require('../middlewares/authMiddleware');
+const pagosCtrl = require('../controllers/pagosController');
 
 // Públicas
 router.post('/login', alumnoCtrl.login);
@@ -18,5 +19,6 @@ router.get('/examenes/:examenId/ranking', auth('alumno'), alumnoCtrl.rankingSalo
 router.get('/cursos', auth('alumno'), alumnoCtrl.cursos);
 router.get('/cursos/:idCurso/materiales', auth('alumno'), alumnoCtrl.materiales);
 router.post('/logout', auth('alumno'), alumnoCtrl.logout);
+router.get('/pagos', auth('alumno'), pagosCtrl.getPagosAlumnoPublico);
 
 module.exports = router;

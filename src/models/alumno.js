@@ -16,6 +16,7 @@ const Alumno = sequelize.define('Alumno', {
   celular: { type: DataTypes.STRING(15) },
   dni: { type: DataTypes.STRING(15), allowNull: true },
   fecha_nacimiento: { type: DataTypes.DATEONLY, allowNull: true },
+  suspendido: { type: DataTypes.BOOLEAN, defaultValue: false },
 }, { tableName: 'alumno', timestamps: false });
 
 module.exports = Alumno;

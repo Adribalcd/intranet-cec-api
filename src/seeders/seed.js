@@ -12,6 +12,7 @@ const {
   sequelize,
   Admin, Alumno, Ciclo, Curso, HorarioCurso,
   Matricula, Examen, Nota, Asistencia, Material,
+  ConceptoPago, Pago,
 } = require('../models');
 
 // ── Utilidades ────────────────────────────────────────────────
@@ -152,6 +153,12 @@ async function seed() {
     await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
     // Ampliar columna valor para escala 0–2000 (DECIMAL 7,3)
     await sequelize.query('ALTER TABLE `nota` MODIFY COLUMN `valor` DECIMAL(7,3)');
+    // Crear/recrear tablas de pagos
+    await ConceptoPago.sync({ force: true });
+    await Pago.sync({ force: true });
+    // Columna suspendido en alumno
+    try { await sequelize.query("ALTER TABLE `alumno` ADD COLUMN `suspendido` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
+    try { await sequelize.query("ALTER TABLE `alumno` MODIFY COLUMN `suspendido` TINYINT(1) NOT NULL DEFAULT 0"); } catch (_) {}
     console.log('✓ Todas las tablas vaciadas\n');
 
     // ──────────────────────────────────────────────────────────
@@ -174,6 +181,40 @@ async function seed() {
     ]);
     const [cicloAnual, cicloInt1, cicloInt2, cicloVac] = ciclos;
     console.log(`✓ ${ciclos.length} ciclos creados`);
+
+    // ── Conceptos de pago para Ciclo Anual SM ──────────────────
+    const MESES_PAGO = [
+      { mes: 3, nombre: 'Marzo' }, { mes: 4, nombre: 'Abril' },
+      { mes: 5, nombre: 'Mayo' }, { mes: 6, nombre: 'Junio' },
+      { mes: 7, nombre: 'Julio' }, { mes: 8, nombre: 'Agosto' },
+      { mes: 9, nombre: 'Setiembre' }, { mes: 10, nombre: 'Octubre' },
+      { mes: 11, nombre: 'Noviembre' },
+    ];
+    await ConceptoPago.create({
+      ciclo_id: cicloAnual.id, tipo: 'matricula', descripcion: 'Matrícula 2025',
+      monto_opcion_1: 50, etiqueta_opcion_1: 'Tarifa regular',
+      monto_opcion_2: 40, etiqueta_opcion_2: 'Tarifa especial',
+      fecha_vencimiento: '2025-03-10', orden: 0,
+    });
+    for (const { mes, nombre } of MESES_PAGO) {
+      const mesVence = mes === 12 ? 1 : mes + 1;
+      const anioVenceReal = mes === 12 ? 2026 : 2025;
+      await ConceptoPago.create({
+        ciclo_id: cicloAnual.id, tipo: 'mensualidad',
+        descripcion: `Pensión ${nombre} 2025`,
+        mes, anio: 2025,
+        monto_opcion_1: 350, etiqueta_opcion_1: 'Tarifa regular',
+        monto_opcion_2: 300, etiqueta_opcion_2: 'Tarifa especial',
+        fecha_vencimiento: `${anioVenceReal}-${String(mesVence).padStart(2,'0')}-05`,
+        orden: mes - 2,
+      });
+    }
+    await ConceptoPago.create({
+      ciclo_id: cicloAnual.id, tipo: 'materiales', descripcion: 'Materiales 2025',
+      monto_opcion_1: 80, etiqueta_opcion_1: 'Incluye textos',
+      fecha_vencimiento: '2025-03-20', orden: 10,
+    });
+    console.log('✓ Conceptos de pago creados para Ciclo Anual');
 
     // ──────────────────────────────────────────────────────────
     // 3. CURSOS + HORARIOS
