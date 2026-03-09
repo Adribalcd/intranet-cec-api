@@ -269,7 +269,10 @@ exports.materiales = async (req, res) => {
     const where = { curso_id: idCurso };
     if (semana) where.semana = semana;
 
-    const materiales = await Material.findAll({ where });
+    const materiales = await Material.findAll({
+      where,
+      order: [['semana', 'ASC'], ['id', 'ASC']]
+    });
 
     res.json(
       materiales.map((m) => ({
@@ -278,6 +281,7 @@ exports.materiales = async (req, res) => {
         semana: m.semana,
         urlArchivo: m.url_archivo,
         urlDrive: m.url_drive || null,
+        tipoArchivo: m.tipo_archivo || null,
       }))
     );
   } catch (error) {
