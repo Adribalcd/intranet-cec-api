@@ -702,6 +702,9 @@ exports.getNotasExamen = async (req, res) => {
       notas: notas.map((n) => ({
         puesto: n.puesto,
         nota: n.valor,
+        valor: n.valor,
+        buenas: n.buenas,
+        malas: n.malas,
         codigo: n.Alumno?.codigo,
         nombres: n.Alumno?.nombres,
         apellidos: n.Alumno?.apellidos,
