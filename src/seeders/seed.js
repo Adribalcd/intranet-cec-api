@@ -154,9 +154,11 @@ async function seed() {
     // ──────────────────────────────────────────────────────────
     // 1. ADMIN
     // ──────────────────────────────────────────────────────────
-    const adminHash = await bcrypt.hash('CEC@dm1n#2025!', 10);
-    await Admin.create({ usuario: 'admin.cec', contrasena: adminHash });
-    console.log('✓ Admin creado  →  usuario: admin.cec  |  contraseña: CEC@dm1n#2025!');
+    const ADMIN_USER = 'admin_cecamargo_secure_2026';
+    const ADMIN_PASS = 'K8#zP2$mQ9!vL5*nR4^xJ1@bW7&tY3';
+    const adminHash = await bcrypt.hash(ADMIN_PASS, 12);
+    await Admin.create({ usuario: ADMIN_USER, contrasena: adminHash });
+    console.log(`✓ Admin creado  →  usuario: ${ADMIN_USER}  |  contraseña: ${ADMIN_PASS}`);
 
     // ──────────────────────────────────────────────────────────
     // 2. CICLOS
@@ -407,8 +409,8 @@ async function seed() {
     console.log('  SEED COMPLETADO — Intranet CEC Camargo');
     console.log('════════════════════════════════════════════════════════');
     console.log('\n🔐 CREDENCIALES ADMIN:');
-    console.log('   Usuario   : admin.cec');
-    console.log('   Contraseña: CEC@dm1n#2025!');
+    console.log(`   Usuario   : ${ADMIN_USER}`);
+    console.log(`   Contraseña: ${ADMIN_PASS}`);
     console.log('\n👨‍🎓 ALUMNOS (código = DNI):');
     for (const { alumno, passRaw } of alumnos) {
       console.log(`   ${alumno.codigo}  |  ${alumno.nombres} ${alumno.apellidos}  |  pass: ${passRaw}`);
