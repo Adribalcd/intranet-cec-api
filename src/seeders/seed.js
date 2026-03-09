@@ -345,17 +345,47 @@ async function seed() {
     console.log(`✓ ${totalExamenes} exámenes creados (Anual: ${examenesAnual.length} | Int I: ${examenesInt1.length})`);
 
     // ──────────────────────────────────────────────────────────
-    // 7. NOTAS
+    // 7. NOTAS — distribución realista por alumno
+    //    Cada alumno tiene un nivelBase persistente (fracción de
+    //    aciertos esperada). Por examen se añade variación ±8%.
+    //    Scores Simulacro (100q) → mayoría 900–1800 pts.
     // ──────────────────────────────────────────────────────────
+
+    // gaussRand: aproximación normal (Box-Muller simplificado)
+    function gaussRand(mean, stddev) {
+      let u = 0, v = 0;
+      while (u === 0) u = Math.random();
+      while (v === 0) v = Math.random();
+      return mean + stddev * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    // Asignar nivel base a cada alumno (fracción correcta esperada)
+    // Distribución: la mayoría entre 0.52–0.82, con cola alta y baja
+    const nivelBaseMap = new Map();
+    for (const { alumno } of alumnos) {
+      // Normal centrada en 0.67 con σ=0.1, clamp [0.42, 0.90]
+      const nivel = Math.min(0.90, Math.max(0.42, gaussRand(0.67, 0.10)));
+      nivelBaseMap.set(alumno.id, nivel);
+    }
+
     async function crearNotas(examenes, alumnosList) {
       let total = 0;
       for (const examen of examenes) {
-        const q = examen.cantidad_preguntas;
+        const q  = examen.cantidad_preguntas;
         const filas = [];
         for (const { alumno } of alumnosList) {
-          const buenas = rnd(Math.floor(q * 0.3), Math.floor(q * 0.95));
-          const malas  = rnd(0, Math.floor((q - buenas) * 0.5));
-          const valor  = calcNota(buenas, malas);
+          const nivelBase = nivelBaseMap.get(alumno.id) ?? 0.65;
+          // Variación por examen ±8%
+          const varExamen = (Math.random() - 0.5) * 0.16;
+          const fracAcierto = Math.min(0.93, Math.max(0.35, nivelBase + varExamen));
+
+          const buenas = Math.round(q * fracAcierto);
+          // Errores: entre 5% y 25% de las restantes
+          const restantes = q - buenas;
+          const fracError = 0.05 + Math.random() * 0.20;
+          const malas = Math.round(restantes * fracError);
+
+          const valor = calcNota(buenas, malas);
           filas.push({ examen_id: examen.id, alumno_id: alumno.id, valor, buenas, malas, puesto: 0 });
         }
         filas.sort((a, b) => b.valor - a.valor);
