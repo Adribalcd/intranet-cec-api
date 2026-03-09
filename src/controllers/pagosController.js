@@ -318,10 +318,15 @@ exports.getPagosAlumnoPublico = async (req, res) => {
         let estado;
         
         if (pago) {
-          if (pago.estado === 'confirmado') estado = 'pagado';
-          else if (pago.estado === 'pendiente') estado = 'en_revision';
-          else estado = 'rechazado';
+          if (pago.estado === 'confirmado') {
+            estado = 'pagado';
+          } else if (pago.estado === 'pendiente') {
+            estado = 'en_revision';
+          } else {
+            estado = 'rechazado';
+          }
         } else {
+          // Solo marcamos como vencido si NO existe un pago (o no está confirmado)
           estado = (vence && vence < hoy) ? 'vencido' : 'pendiente';
         }
         
