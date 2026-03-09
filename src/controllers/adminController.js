@@ -960,42 +960,88 @@ exports.descargarPlantillaNotas = async (req, res) => {
     const examen = await Examen.findByPk(examenId, { include: [Ciclo] });
     if (!examen) return res.status(404).json({ error: 'Examen no encontrado' });
 
-    // Alumnos matriculados en el ciclo del examen
+    // Alumnos matriculados en el ciclo del examen (ordenados por apellido)
     const matriculas = await Matricula.findAll({
       where: { ciclo_id: examen.ciclo_id },
-      include: [{
-        model: Alumno,
-        attributes: ['codigo', 'nombres', 'apellidos'],
-      }],
+      include: [{ model: Alumno, attributes: ['id', 'codigo', 'nombres', 'apellidos'] }],
+      order: [[Alumno, 'apellidos', 'ASC']],
     });
+
+    // Notas ya registradas para este examen (mapa alumno_id → nota)
+    const notasExistentes = await Nota.findAll({ where: { examen_id: examenId } });
+    const notaMap = {};
+    notasExistentes.forEach((n) => { notaMap[n.alumno_id] = n; });
+    const hayNotasRegistradas = notasExistentes.length > 0;
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Notas');
 
-    // Si el examen tiene puntajes configurados, incluir columnas de Buenas/Malas
     const usaPuntajes = examen.puntaje_pregunta_buena != null;
 
     sheet.columns = [
-      { header: 'CODIGO',         key: 'codigo', width: 15 },
-      { header: 'NOMBRE_COMPLETO',key: 'nombre', width: 40 },
+      { header: 'CODIGO',          key: 'codigo', width: 15 },
+      { header: 'NOMBRE_COMPLETO', key: 'nombre', width: 42 },
       ...(usaPuntajes
         ? [
-            { header: `BUENAS (×${examen.puntaje_pregunta_buena})`, key: 'buenas', width: 14 },
-            { header: `MALAS  (×${examen.puntaje_pregunta_mala})`,  key: 'malas',  width: 14 },
+            { header: `BUENAS (×${examen.puntaje_pregunta_buena})`, key: 'buenas', width: 16 },
+            { header: `MALAS  (×${examen.puntaje_pregunta_mala})`,  key: 'malas',  width: 16 },
           ]
-        : [{ header: 'NOTA', key: 'nota', width: 10 }]),
+        : [{ header: 'NOTA', key: 'nota', width: 12 }]),
+      ...(hayNotasRegistradas ? [{ header: 'NOTA_ACTUAL (solo referencia — no editar)', key: 'notaRef', width: 38 }] : []),
     ];
 
-    // Estilo del header
-    sheet.getRow(1).font = { bold: true };
-    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D4F5C' } };
-    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    // Estilo de cabecera
+    const hRow = sheet.getRow(1);
+    hRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    hRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D4F5C' } };
+    hRow.alignment = { vertical: 'middle' };
+
+    // Si hay columna de referencia, marcarla de color diferente para distinguirla
+    if (hayNotasRegistradas) {
+      const refColIdx = usaPuntajes ? 5 : 4; // 1-indexed
+      sheet.getColumn(refColIdx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F9F7' } };
+      sheet.getCell(1, refColIdx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A7A6E' } };
+      sheet.getCell(1, refColIdx).font = { bold: true, color: { argb: 'FFFFFFFF' }, italic: true };
+    }
 
     matriculas.forEach((m) => {
+      const nota = notaMap[m.Alumno.id];
       const row = { codigo: m.Alumno.codigo, nombre: `${m.Alumno.apellidos}, ${m.Alumno.nombres}` };
-      if (usaPuntajes) { row.buenas = ''; row.malas = ''; } else { row.nota = ''; }
-      sheet.addRow(row);
+
+      if (usaPuntajes) {
+        row.buenas = nota?.buenas ?? '';
+        row.malas  = nota?.malas  ?? '';
+      } else {
+        row.nota = nota?.valor ?? '';
+      }
+
+      if (hayNotasRegistradas) {
+        row.notaRef = nota ? `${nota.valor} pts — puesto ${nota.puesto}` : '(sin nota registrada)';
+      }
+
+      const addedRow = sheet.addRow(row);
+
+      // Filas con nota ya registrada → fondo verde muy suave
+      if (nota) {
+        addedRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F7F3' } };
+      }
+
+      // La columna de referencia solo lectura visual (cursiva, gris)
+      if (hayNotasRegistradas) {
+        const refColIdx = usaPuntajes ? 5 : 4;
+        addedRow.getCell(refColIdx).font = { italic: true, color: { argb: 'FF6B7280' } };
+        addedRow.getCell(refColIdx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FFFE' } };
+      }
     });
+
+    // Fila de aviso al final si hay notas registradas
+    if (hayNotasRegistradas) {
+      sheet.addRow([]);
+      const avisoRow = sheet.addRow({ codigo: '⚠ Modifica solo las notas que necesites. Las celdas pre-llenadas son las notas actuales.' });
+      avisoRow.getCell(1).font = { bold: true, color: { argb: 'FF92400E' } };
+      avisoRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+      sheet.mergeCells(avisoRow.number, 1, avisoRow.number, usaPuntajes ? 4 : 3);
+    }
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=plantilla_notas_examen_${examenId}.xlsx`);
