@@ -343,8 +343,8 @@ exports.getPagosAlumnoPublico = async (req, res) => {
           concepto: c, 
           pago, 
           estado,
-          // Indicamos si puede pagar online este concepto específico
-          puedePagarOnline: !!(c.permite_pago_online && (config.permite_transferencia || config.permite_yape_plin))
+          // Forzamos conversión a booleano para evitar fallos de evaluación en el front
+          puedePagarOnline: Boolean(c.permite_pago_online && config && (config.permite_transferencia || config.permite_yape_plin))
         };
       });
 
