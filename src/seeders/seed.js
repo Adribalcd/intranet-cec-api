@@ -157,9 +157,9 @@ async function seed() {
 
     await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
 
-    // Sincronizar todos los modelos primero para asegurar que las tablas existan
-    console.log('🔄 Sincronizando modelos...');
-    await sequelize.sync({ alter: true });
+    // Sincronizar todos los modelos usando force para producción/limpieza total
+    console.log('🔄 Sincronizando modelos (FORCE)...');
+    await sequelize.sync({ force: true });
 
     // Ampliar columna valor para escala 0–2000 (DECIMAL 7,3)
     await sequelize.query('ALTER TABLE `nota` MODIFY COLUMN `valor` DECIMAL(7,3)');
