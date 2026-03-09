@@ -285,6 +285,7 @@ exports.getPagosAlumnoPublico = async (req, res) => {
     for (const matricula of matriculas) {
       const ciclo = matricula.Ciclo;
       const config = ciclo.ConfigPagosCiclo || null;
+      // Si no hay config o pagos_visible es false, no mostramos nada de este ciclo
       if (!config || !config.pagos_visible) continue;
 
       const conceptos = await ConceptoPago.findAll({
@@ -292,30 +293,50 @@ exports.getPagosAlumnoPublico = async (req, res) => {
         order: [['orden', 'ASC'], ['id', 'ASC']],
       });
 
+      // Obtenemos todos los pagos del alumno para este ciclo
       const pagos = await Pago.findAll({
-        include: [{ model: ConceptoPago, as: 'Concepto', where: { ciclo_id: ciclo.id }, required: true }],
+        include: [{ 
+          model: ConceptoPago, 
+          as: 'Concepto', 
+          where: { ciclo_id: ciclo.id }, 
+          required: true 
+        }],
         where: { alumno_id: alumnoId },
       });
+      
       const pagoMap = {};
-      pagos.forEach(p => { pagoMap[p.concepto_id] = p; });
+      pagos.forEach(p => { 
+        // Si el pago es visible para el alumno O es un pago online (pendiente/en revisión/rechazado)
+        if (p.visible_alumno || p.tipo_registro === 'online' || p.estado !== 'confirmado') {
+          pagoMap[p.concepto_id] = p; 
+        }
+      });
 
       const items = conceptos.map(c => {
         const pago = pagoMap[c.id] || null;
-        // Para pagos online pendientes/rechazados los mostramos aunque visible_alumno=false
         const vence = c.fecha_vencimiento ? new Date(c.fecha_vencimiento + 'T12:00:00') : null;
         let estado;
+        
         if (pago) {
           if (pago.estado === 'confirmado') estado = 'pagado';
           else if (pago.estado === 'pendiente') estado = 'en_revision';
           else estado = 'rechazado';
         } else {
-          estado = vence && vence < hoy ? 'vencido' : 'pendiente';
+          estado = (vence && vence < hoy) ? 'vencido' : 'pendiente';
         }
-        return { concepto: c, pago, estado };
+        
+        return { 
+          concepto: c, 
+          pago, 
+          estado,
+          // Indicamos si puede pagar online este concepto específico
+          puedePagarOnline: c.permite_pago_online && (config.permite_transferencia || config.permite_yape_plin)
+        };
       });
 
       // Exponer solo campos de config necesarios para el alumno
       const safeConfig = {
+        permitePagarOnline: config.permite_transferencia || config.permite_yape_plin,
         permite_transferencia: config.permite_transferencia,
         permite_yape_plin:     config.permite_yape_plin,
         bcp_cuenta:            config.bcp_cuenta,
