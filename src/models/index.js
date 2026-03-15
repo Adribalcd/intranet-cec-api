@@ -7,6 +7,7 @@ const HorarioCurso = require('./horarioCurso');
 const Material = require('./material');
 const Examen = require('./examen');
 const Nota = require('./nota');
+const NotaCurso = require('./nota_curso');
 const Asistencia = require('./asistencia');
 const Matricula = require('./matricula');
 const ConceptoPago = require('./concepto_pago');
@@ -31,6 +32,9 @@ Nota.belongsTo(Examen, { foreignKey: 'examen_id' });
 
 Alumno.hasMany(Nota, { foreignKey: 'alumno_id' });
 Nota.belongsTo(Alumno, { foreignKey: 'alumno_id' });
+
+Nota.hasMany(NotaCurso, { foreignKey: 'nota_id', as: 'Cursos' });
+NotaCurso.belongsTo(Nota, { foreignKey: 'nota_id' });
 
 Alumno.hasMany(Asistencia, { foreignKey: 'alumno_id' });
 Asistencia.belongsTo(Alumno, { foreignKey: 'alumno_id' });
@@ -64,6 +68,7 @@ module.exports = {
   Material,
   Examen,
   Nota,
+  NotaCurso,
   Asistencia,
   Matricula,
   ConceptoPago,

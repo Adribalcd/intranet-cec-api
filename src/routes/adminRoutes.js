@@ -81,6 +81,10 @@ router.get('/examen/:examenId/plantilla-notas', auth('admin'), adminCtrl.descarg
 // Subir Excel con notas
 router.post('/examen/:examenId/notas-excel', auth('admin'), adminCtrl.uploadExcelMiddleware, adminCtrl.subirNotasExcel);
 
+// Simulacro OMR por área
+router.post('/examen/:examenId/subir-excel-simulacro', auth('admin'), adminCtrl.uploadSimulacroMiddleware, adminCtrl.subirExcelSimulacro);
+router.get('/examen/:examenId/notas-simulacro',       auth('admin'), adminCtrl.getNotasSimulacro);
+
 // Reportes Excel
 router.get('/reportes/alumnos-ciclo', auth('admin'), adminCtrl.reporteAlumnosCiclo);
 router.get('/reportes/orden-merito', auth('admin'), adminCtrl.reporteOrdenMerito);
