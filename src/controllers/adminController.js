@@ -143,11 +143,57 @@ exports.login = async (req, res) => {
     if (!valid) {
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
-    const token = generarToken({ id: admin.id, rol: 'admin' });
-    res.json({ token });
+    const token = generarToken({ id: admin.id, rol: 'admin', rolAdmin: admin.rol || 'general', nombre: admin.nombre || admin.usuario });
+    res.json({ token, rolAdmin: admin.rol || 'general', nombre: admin.nombre || admin.usuario });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+};
+
+// ===================== USUARIOS ADMIN (CRUD) =====================
+
+exports.getAdminUsers = async (req, res) => {
+  try {
+    const users = await Admin.findAll({ attributes: ['id', 'usuario', 'nombre', 'rol'] });
+    res.json(users);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+exports.createAdminUser = async (req, res) => {
+  try {
+    const { usuario, contrasena, nombre, rol } = req.body;
+    if (!usuario || !contrasena) return res.status(400).json({ error: 'usuario y contrasena son requeridos' });
+    const hash = await bcrypt.hash(contrasena, 12);
+    const user = await Admin.create({ usuario, contrasena: hash, nombre: nombre || null, rol: rol || 'general' });
+    res.status(201).json({ id: user.id, usuario: user.usuario, nombre: user.nombre, rol: user.rol });
+  } catch (e) {
+    if (e.name === 'SequelizeUniqueConstraintError') return res.status(409).json({ error: 'El usuario ya existe' });
+    res.status(500).json({ error: e.message });
+  }
+};
+
+exports.updateAdminUser = async (req, res) => {
+  try {
+    const user = await Admin.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    const updates = {};
+    if (req.body.nombre !== undefined) updates.nombre = req.body.nombre;
+    if (req.body.rol)       updates.rol    = req.body.rol;
+    if (req.body.contrasena) updates.contrasena = await bcrypt.hash(req.body.contrasena, 12);
+    await user.update(updates);
+    res.json({ id: user.id, usuario: user.usuario, nombre: user.nombre, rol: user.rol });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+exports.deleteAdminUser = async (req, res) => {
+  try {
+    // Evitar eliminar al último usuario general
+    if (req.usuario.id === Number(req.params.id)) return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
+    const user = await Admin.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    await user.destroy();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
 // ===================== CICLOS (CRUD) =====================

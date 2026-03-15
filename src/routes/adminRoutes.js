@@ -111,25 +111,31 @@ router.post(
   adminCtrl.uploadMaterial,
 );
 
-// ── Pagos ──────────────────────────────────────────────────────
-router.get('/ciclos/:cicloId/conceptos-pago',    auth('admin'), pagosCtrl.getConceptos);
-router.post('/ciclos/:cicloId/conceptos-pago',   auth('admin'), pagosCtrl.createConcepto);
-router.put('/concepto-pago/:id',                 auth('admin'), pagosCtrl.updateConcepto);
-router.delete('/concepto-pago/:id',              auth('admin'), pagosCtrl.deleteConcepto);
-router.get('/ciclos/:cicloId/resumen-pagos',     auth('admin'), pagosCtrl.getResumenCiclo);
-router.get('/alumnos/:alumnoId/pagos/:cicloId',  auth('admin'), pagosCtrl.getPagosAlumno);
-router.post('/pago',                             auth('admin'), pagosCtrl.registrarPago);
-router.put('/pago/:id',                          auth('admin'), pagosCtrl.updatePago);
-router.delete('/pago/:id',                       auth('admin'), pagosCtrl.deletePago);
-router.put('/pago/:id/visibilidad',              auth('admin'), pagosCtrl.toggleVisibilidad);
-router.put('/alumno/:codigo/suspender',          auth('admin'), pagosCtrl.toggleSuspension);
+// ── Usuarios admin (gestión de cuentas) — solo rol general ────
+router.get('/admin-users',        auth('admin', ['general']), adminCtrl.getAdminUsers);
+router.post('/admin-users',       auth('admin', ['general']), adminCtrl.createAdminUser);
+router.put('/admin-users/:id',    auth('admin', ['general']), adminCtrl.updateAdminUser);
+router.delete('/admin-users/:id', auth('admin', ['general']), adminCtrl.deleteAdminUser);
+
+// ── Pagos (general y pagos — academico no tiene acceso) ────────
+router.get('/ciclos/:cicloId/conceptos-pago',    auth('admin', ['general', 'pagos']), pagosCtrl.getConceptos);
+router.post('/ciclos/:cicloId/conceptos-pago',   auth('admin', ['general', 'pagos']), pagosCtrl.createConcepto);
+router.put('/concepto-pago/:id',                 auth('admin', ['general', 'pagos']), pagosCtrl.updateConcepto);
+router.delete('/concepto-pago/:id',              auth('admin', ['general', 'pagos']), pagosCtrl.deleteConcepto);
+router.get('/ciclos/:cicloId/resumen-pagos',     auth('admin', ['general', 'pagos']), pagosCtrl.getResumenCiclo);
+router.get('/alumnos/:alumnoId/pagos/:cicloId',  auth('admin', ['general', 'pagos']), pagosCtrl.getPagosAlumno);
+router.post('/pago',                             auth('admin', ['general', 'pagos']), pagosCtrl.registrarPago);
+router.put('/pago/:id',                          auth('admin', ['general', 'pagos']), pagosCtrl.updatePago);
+router.delete('/pago/:id',                       auth('admin', ['general', 'pagos']), pagosCtrl.deletePago);
+router.put('/pago/:id/visibilidad',              auth('admin', ['general', 'pagos']), pagosCtrl.toggleVisibilidad);
+router.put('/alumno/:codigo/suspender',          auth('admin', ['general', 'pagos']), pagosCtrl.toggleSuspension);
 
 // Configuración de pagos online por ciclo
-router.get('/ciclos/:cicloId/config-pagos', auth('admin'), pagosCtrl.getConfigPagos);
-router.put('/ciclos/:cicloId/config-pagos', auth('admin'), pagosCtrl.upsertConfigPagos);
+router.get('/ciclos/:cicloId/config-pagos', auth('admin', ['general', 'pagos']), pagosCtrl.getConfigPagos);
+router.put('/ciclos/:cicloId/config-pagos', auth('admin', ['general', 'pagos']), pagosCtrl.upsertConfigPagos);
 
 // Gestión de pagos online pendientes y confirmación
-router.get('/pagos/pendientes-online', auth('admin'), pagosCtrl.getPagosOnlinePendientes);
-router.put('/pago/:id/confirmar', auth('admin'), pagosCtrl.confirmarPago);
+router.get('/pagos/pendientes-online', auth('admin', ['general', 'pagos']), pagosCtrl.getPagosOnlinePendientes);
+router.put('/pago/:id/confirmar', auth('admin', ['general', 'pagos']), pagosCtrl.confirmarPago);
 
 module.exports = router;

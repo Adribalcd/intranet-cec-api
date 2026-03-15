@@ -91,7 +91,22 @@ const pasos = [
             COMMENT 'Número WhatsApp contacto pagos (sin +)'`,
   },
 
-  // ── 4. nota_curso (nueva) ────────────────────────────────────────────────
+  // ── 4. admin: roles ──────────────────────────────────────────────────────
+  {
+    nombre: 'admin: ADD COLUMN nombre',
+    sql: `ALTER TABLE \`admin\`
+            ADD COLUMN IF NOT EXISTS \`nombre\` VARCHAR(80) NULL DEFAULT NULL
+            COMMENT 'Nombre de visualización del usuario admin'`,
+  },
+  {
+    nombre: 'admin: ADD COLUMN rol',
+    sql: `ALTER TABLE \`admin\`
+            ADD COLUMN IF NOT EXISTS \`rol\`
+            ENUM('general','academico','pagos') NOT NULL DEFAULT 'general'
+            COMMENT 'Rol: general=todo | academico=sin pagos | pagos=solo pagos'`,
+  },
+
+  // ── 5. nota_curso (nueva) ────────────────────────────────────────────────
   {
     nombre: 'nota_curso: CREATE TABLE',
     sql: `CREATE TABLE IF NOT EXISTS \`nota_curso\` (
