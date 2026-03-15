@@ -6,7 +6,8 @@ const multer = require('multer');
 const QRCode = require('qrcode');
 const ExcelJS = require('exceljs');
 const { google } = require('googleapis');
-const { sequelize, Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, Material } = require('../models');
+const { sequelize, Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, NotaCurso, Material } = require('../models');
+const { parsearExcelSimulacro, CURSOS_SIMULACRO } = require('../utils/parsearExcelSimulacro');
 const { generarToken } = require('../utils/tokenUtils');
 const { sendCredentials, sendWelcomeCiclo } = require('../utils/emailService');
 const axios = require('axios');
@@ -1787,6 +1788,182 @@ exports.eliminarAlumno = async (req, res) => {
     await alumno.destroy();
 
     res.json({ ok: true, mensaje: `Alumno "${nombre}" (${codigo}) eliminado del sistema.` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== SIMULACRO OMR — SUBIR EXCEL POR ÁREA =====================
+
+// Multer para el Excel de simulacro (reutiliza uploadExcel definido arriba)
+exports.uploadSimulacroMiddleware = uploadExcel.single('archivo');
+
+/**
+ * POST /api/admin/examen/:examenId/subir-excel-simulacro
+ * Procesa el Excel OMR de simulacro y guarda los puntajes por alumno y por curso.
+ *
+ * - Detecta automáticamente el área del Excel.
+ * - Busca cada alumno por DNI/código.
+ * - Crea o actualiza la Nota global + las NotaCurso (detalle por curso).
+ * - Devuelve resumen: procesados, no encontrados, errores.
+ */
+exports.subirExcelSimulacro = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió archivo Excel.' });
+
+    const examenId = parseInt(req.params.examenId, 10);
+    const examen = await Examen.findByPk(examenId);
+    if (!examen) return res.status(404).json({ error: 'Examen no encontrado.' });
+
+    // ── Parsear el Excel ──────────────────────────────────────────────────────
+    let parsed;
+    try {
+      parsed = await parsearExcelSimulacro(req.file.buffer);
+    } catch (parseErr) {
+      return res.status(422).json({ error: `Error al leer el Excel: ${parseErr.message}` });
+    }
+
+    const { ponderaciones, areaDelExamen, claves, alumnos: filas } = parsed;
+
+    if (filas.length === 0) {
+      return res.status(422).json({ error: 'El Excel no contiene filas de alumnos con DNI válido.' });
+    }
+
+    // Guardar el área y ponderaciones en el examen
+    if (areaDelExamen) {
+      await examen.update({
+        area: areaDelExamen,
+        ponderaciones_json: JSON.stringify(ponderaciones),
+        cantidad_preguntas: 100,
+      });
+    }
+
+    // ── Procesar cada fila ────────────────────────────────────────────────────
+    const resumen = { procesados: 0, noEncontrados: [], errores: [] };
+
+    // Obtener TODOS los alumnos del examen (ciclo) para buscar por código/DNI
+    const alumnosBD = await Alumno.findAll({
+      attributes: ['id', 'codigo', 'dni'],
+    });
+    const porCodigo = new Map(alumnosBD.map(a => [String(a.codigo || ''), a.id]));
+    const porDni    = new Map(alumnosBD.map(a => [String(a.dni    || ''), a.id]));
+
+    for (const fila of filas) {
+      try {
+        // Buscar alumno por código (que suele ser = DNI en este sistema)
+        let alumnoId = porCodigo.get(fila.dni) ?? porDni.get(fila.dni) ?? null;
+        if (!alumnoId) {
+          resumen.noEncontrados.push(fila.dni);
+          continue;
+        }
+
+        // Upsert Nota global
+        const [nota] = await Nota.findOrCreate({
+          where: { examen_id: examenId, alumno_id: alumnoId },
+          defaults: {
+            valor:  fila.puntajeGlobal ?? 0,
+            buenas: fila.totalBuenas,
+            malas:  fila.totalMalas,
+            nc:     fila.totalNC,
+            puesto: 0,
+            area:    fila.area,
+            carrera: fila.carrera,
+            aula:    fila.aula,
+          },
+        });
+
+        // Si ya existía, actualizamos
+        if (!nota.isNewRecord || nota.valor === 0) {
+          await nota.update({
+            valor:  fila.puntajeGlobal ?? nota.valor,
+            buenas: fila.totalBuenas,
+            malas:  fila.totalMalas,
+            nc:     fila.totalNC,
+            area:    fila.area,
+            carrera: fila.carrera,
+            aula:    fila.aula,
+          });
+        }
+
+        // Eliminar detalle anterior y reemplazar
+        await NotaCurso.destroy({ where: { nota_id: nota.id } });
+        const detalles = CURSOS_SIMULACRO
+          .filter(nombre => fila.puntajesCurso[nombre])
+          .map(nombre => ({
+            nota_id:      nota.id,
+            curso_nombre: nombre,
+            buenas:  fila.puntajesCurso[nombre].buenas ?? 0,
+            malas:   fila.puntajesCurso[nombre].malas  ?? 0,
+            nc:      fila.puntajesCurso[nombre].nc     ?? 0,
+            puntaje: fila.puntajesCurso[nombre].puntaje,
+          }));
+        if (detalles.length > 0) await NotaCurso.bulkCreate(detalles);
+
+        resumen.procesados++;
+      } catch (rowErr) {
+        resumen.errores.push({ dni: fila.dni, error: rowErr.message });
+      }
+    }
+
+    // Recalcular puestos globales del examen
+    try {
+      const todasNotas = await Nota.findAll({
+        where: { examen_id: examenId },
+        order: [['valor', 'DESC']],
+      });
+      for (let i = 0; i < todasNotas.length; i++) {
+        await todasNotas[i].update({ puesto: i + 1 });
+      }
+    } catch (_) { /* no bloquear si falla el ranking */ }
+
+    return res.json({
+      ok: true,
+      area: areaDelExamen,
+      resumen,
+    });
+  } catch (error) {
+    console.error('[subirExcelSimulacro]', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * GET /api/admin/examen/:examenId/notas-simulacro
+ * Devuelve las notas con detalle por curso para un examen de simulacro.
+ */
+exports.getNotasSimulacro = async (req, res) => {
+  try {
+    const { examenId } = req.params;
+    const notas = await Nota.findAll({
+      where: { examen_id: examenId },
+      include: [
+        { model: Alumno, attributes: ['id', 'codigo', 'nombres', 'apellidos'] },
+        { model: NotaCurso, as: 'Cursos' },
+      ],
+      order: [['puesto', 'ASC']],
+    });
+
+    res.json(notas.map(n => ({
+      alumnoId:  n.alumno_id,
+      codigo:    n.Alumno?.codigo,
+      nombres:   n.Alumno?.nombres,
+      apellidos: n.Alumno?.apellidos,
+      area:      n.area,
+      carrera:   n.carrera,
+      aula:      n.aula,
+      puntaje:   n.valor,
+      buenas:    n.buenas,
+      malas:     n.malas,
+      nc:        n.nc,
+      puesto:    n.puesto,
+      cursos:    (n.Cursos || []).map(c => ({
+        curso:   c.curso_nombre,
+        buenas:  c.buenas,
+        malas:   c.malas,
+        nc:      c.nc,
+        puntaje: c.puntaje,
+      })),
+    })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

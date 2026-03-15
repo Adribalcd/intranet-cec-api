@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const QRCode = require('qrcode');
-const { Alumno, Matricula, Curso, Ciclo, HorarioCurso, Asistencia, Nota, Examen, Material } = require('../models');
+const { Alumno, Matricula, Curso, Ciclo, HorarioCurso, Asistencia, Nota, NotaCurso, Examen, Material } = require('../models');
 const { generarToken, invalidarToken } = require('../utils/tokenUtils');
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
@@ -342,6 +342,58 @@ exports.resetPassword = async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     console.error('[resetPassword] ERROR:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// GET /api/alumno/calificaciones-simulacro
+// Devuelve todas las notas del alumno que tienen detalle por curso (simulacros OMR)
+exports.calificacionesSimulacro = async (req, res) => {
+  try {
+    const notas = await Nota.findAll({
+      where: { alumno_id: req.usuario.id },
+      include: [
+        {
+          model: Examen,
+          attributes: ['id', 'fecha', 'tipo_examen', 'subtipo_examen', 'semana',
+                       'cantidad_preguntas', 'puntaje_pregunta_buena', 'puntaje_pregunta_mala',
+                       'area', 'ponderaciones_json'],
+        },
+        { model: NotaCurso, as: 'Cursos' },
+      ],
+      order: [[Examen, 'semana', 'ASC'], [Examen, 'fecha', 'ASC']],
+    });
+
+    res.json(
+      notas.map(n => ({
+        examenId:          n.examen_id,
+        fecha:             n.Examen?.fecha,
+        semana:            n.Examen?.semana,
+        tipo:              n.Examen?.tipo_examen,
+        subtipo:           n.Examen?.subtipo_examen,
+        cantidadPreguntas: n.Examen?.cantidad_preguntas,
+        puntajeBuena:      n.Examen?.puntaje_pregunta_buena,
+        puntajeMala:       n.Examen?.puntaje_pregunta_mala,
+        areaExamen:        n.Examen?.area,
+        nota:              n.valor,
+        buenas:            n.buenas,
+        malas:             n.malas,
+        nc:                n.nc,
+        puesto:            n.puesto,
+        area:              n.area,
+        carrera:           n.carrera,
+        aula:              n.aula,
+        cursos:            (n.Cursos || []).map(c => ({
+          curso:   c.curso_nombre,
+          buenas:  c.buenas,
+          malas:   c.malas,
+          nc:      c.nc,
+          puntaje: parseFloat(c.puntaje) || 0,
+        })),
+      }))
+    );
+  } catch (error) {
+    console.error('[calificacionesSimulacro] ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 };
