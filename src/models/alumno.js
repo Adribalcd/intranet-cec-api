@@ -16,7 +16,9 @@ const Alumno = sequelize.define('Alumno', {
   celular: { type: DataTypes.STRING(15) },
   dni: { type: DataTypes.STRING(15), allowNull: true },
   fecha_nacimiento: { type: DataTypes.DATEONLY, allowNull: true },
-  suspendido: { type: DataTypes.BOOLEAN, defaultValue: false },
+  suspendido:  { type: DataTypes.BOOLEAN, defaultValue: false },
+  es_escolar:  { type: DataTypes.BOOLEAN, defaultValue: false, allowNull: false,
+                 comment: 'true = alumno de modalidad escolaridad (10 cuotas × S/70)' },
 }, { tableName: 'alumno', timestamps: false });
 
 module.exports = Alumno;

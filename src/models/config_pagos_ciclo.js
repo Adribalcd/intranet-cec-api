@@ -17,6 +17,8 @@ const ConfigPagosCiclo = sequelize.define('ConfigPagosCiclo', {
   plin_numero:           { type: DataTypes.STRING(20),  allowNull: true },
   yape_qr_url:           { type: DataTypes.STRING(400), allowNull: true },
   plin_qr_url:           { type: DataTypes.STRING(400), allowNull: true },
+  whatsapp_numero:       { type: DataTypes.STRING(20),  allowNull: true,
+                           comment: 'Número WhatsApp para contacto de pagos (sin +, ej: 51924513040)' },
 }, { tableName: 'config_pagos_ciclo', timestamps: false });
 
 module.exports = ConfigPagosCiclo;

@@ -4,7 +4,7 @@ const sequelize = require('../config/database');
 const ConceptoPago = sequelize.define('ConceptoPago', {
   id:                { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
   ciclo_id:          { type: DataTypes.INTEGER, allowNull: false },
-  tipo:              { type: DataTypes.ENUM('mensualidad', 'matricula', 'materiales', 'otro'), defaultValue: 'mensualidad' },
+  tipo:              { type: DataTypes.ENUM('mensualidad', 'matricula', 'materiales', 'escolaridad', 'otro'), defaultValue: 'mensualidad' },
   descripcion:       { type: DataTypes.STRING(120), allowNull: false },
   mes:               { type: DataTypes.INTEGER, allowNull: true },
   anio:              { type: DataTypes.INTEGER, allowNull: true },
