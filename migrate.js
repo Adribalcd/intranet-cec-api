@@ -65,7 +65,33 @@ const pasos = [
             COMMENT 'Aula del alumno según Excel OMR'`,
   },
 
-  // ── 3. nota_curso (nueva) ────────────────────────────────────────────────
+  // ── 3. alumno / pago / config_pagos_ciclo / concepto_pago ───────────────
+  {
+    nombre: 'alumno: ADD COLUMN es_escolar',
+    sql: `ALTER TABLE \`alumno\`
+            ADD COLUMN IF NOT EXISTS \`es_escolar\` TINYINT(1) NOT NULL DEFAULT 0
+            COMMENT 'true = modalidad escolaridad (10 cuotas × S/70)'`,
+  },
+  {
+    nombre: 'pago: ADD COLUMN codigo_recibo',
+    sql: `ALTER TABLE \`pago\`
+            ADD COLUMN IF NOT EXISTS \`codigo_recibo\` VARCHAR(60) NULL DEFAULT NULL
+            COMMENT 'Código o número de recibo físico'`,
+  },
+  {
+    nombre: 'concepto_pago: ALTER ENUM tipo ADD escolaridad',
+    sql: `ALTER TABLE \`concepto_pago\`
+            MODIFY COLUMN \`tipo\` ENUM('mensualidad','matricula','materiales','escolaridad','otro')
+            NOT NULL DEFAULT 'mensualidad'`,
+  },
+  {
+    nombre: 'config_pagos_ciclo: ADD COLUMN whatsapp_numero',
+    sql: `ALTER TABLE \`config_pagos_ciclo\`
+            ADD COLUMN IF NOT EXISTS \`whatsapp_numero\` VARCHAR(20) NULL DEFAULT NULL
+            COMMENT 'Número WhatsApp contacto pagos (sin +)'`,
+  },
+
+  // ── 4. nota_curso (nueva) ────────────────────────────────────────────────
   {
     nombre: 'nota_curso: CREATE TABLE',
     sql: `CREATE TABLE IF NOT EXISTS \`nota_curso\` (

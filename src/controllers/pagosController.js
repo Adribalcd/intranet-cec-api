@@ -379,6 +379,7 @@ exports.getPagosAlumnoPublico = async (req, res) => {
         plin_numero:           config.plin_numero,
         yape_qr_url:           config.yape_qr_url,
         plin_qr_url:           config.plin_qr_url,
+        whatsapp_numero:       config.whatsapp_numero || null,
       };
 
       result.push({

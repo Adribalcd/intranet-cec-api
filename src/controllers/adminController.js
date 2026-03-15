@@ -6,7 +6,7 @@ const multer = require('multer');
 const QRCode = require('qrcode');
 const ExcelJS = require('exceljs');
 const { google } = require('googleapis');
-const { sequelize, Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, NotaCurso, Material } = require('../models');
+const { sequelize, Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, NotaCurso, Material, ConceptoPago } = require('../models');
 const { parsearExcelSimulacro, CURSOS_SIMULACRO } = require('../utils/parsearExcelSimulacro');
 const { generarToken } = require('../utils/tokenUtils');
 const { sendCredentials, sendWelcomeCiclo } = require('../utils/emailService');
@@ -383,7 +383,7 @@ exports.restaurarPasswordPorDefecto = async (req, res) => {
 
 exports.matriculaManual = async (req, res) => {
   try {
-    const { codigoAlumno, cicloId } = req.body;
+    const { codigoAlumno, cicloId, esEscolar } = req.body;
 
     const alumno = await Alumno.findOne({ where: { codigo: codigoAlumno } });
     if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
@@ -409,6 +409,36 @@ exports.matriculaManual = async (req, res) => {
       fecha_registro: new Date(),
     });
 
+    // ── Escolaridad: auto-generar 10 cuotas de S/70 ──────────────────────
+    if (esEscolar) {
+      await alumno.update({ es_escolar: true });
+
+      // Determinar mes/año inicial desde fecha_inicio del ciclo
+      const fechaInicio = ciclo && ciclo.fecha_inicio ? new Date(ciclo.fecha_inicio + 'T12:00:00') : new Date();
+      const mesInicio  = fechaInicio.getMonth() + 1; // 1-12
+      const anioInicio = fechaInicio.getFullYear();
+
+      const conceptosEscolaridad = [];
+      for (let i = 0; i < 10; i++) {
+        const mesNum  = ((mesInicio - 1 + i) % 12) + 1;
+        const anioNum = anioInicio + Math.floor((mesInicio - 1 + i) / 12);
+        const mesNombre = new Date(anioNum, mesNum - 1, 1)
+          .toLocaleString('es-PE', { month: 'long' });
+        conceptosEscolaridad.push({
+          ciclo_id:          cicloId,
+          tipo:              'escolaridad',
+          descripcion:       `Escolaridad ${mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1)} ${anioNum}`,
+          mes:               mesNum,
+          anio:              anioNum,
+          monto_opcion_1:    70.00,
+          etiqueta_opcion_1: 'Tarifa escolar',
+          orden:             100 + i,
+          permite_pago_online: false,
+        });
+      }
+      await ConceptoPago.bulkCreate(conceptosEscolaridad);
+    }
+
     // Enviar correo de bienvenida al ciclo (si el alumno tiene email registrado)
     if (alumno.email_alumno) {
       sendWelcomeCiclo(
@@ -419,7 +449,7 @@ exports.matriculaManual = async (req, res) => {
       ).catch(() => {});
     }
 
-    res.status(201).json(matricula);
+    res.status(201).json({ ...matricula.toJSON(), esEscolarRegistrada: !!esEscolar });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

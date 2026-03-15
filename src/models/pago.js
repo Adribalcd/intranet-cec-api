@@ -14,6 +14,8 @@ const Pago = sequelize.define('Pago', {
   numero_operacion:  { type: DataTypes.STRING(60), allowNull: true },
   estado:            { type: DataTypes.ENUM('confirmado', 'pendiente', 'rechazado'), defaultValue: 'confirmado' },
   tipo_registro:     { type: DataTypes.ENUM('admin', 'online'), defaultValue: 'admin' },
+  codigo_recibo:     { type: DataTypes.STRING(60), allowNull: true, defaultValue: null,
+                       comment: 'Código o número de recibo físico entregado al alumno' },
 }, { tableName: 'pago', timestamps: false });
 
 module.exports = Pago;
