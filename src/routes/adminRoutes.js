@@ -44,6 +44,13 @@ router.delete('/horario/:id', auth('admin'), adminCtrl.deleteHorario);
 // Exámenes por ciclo
 router.get('/ciclos/:cicloId/examenes', auth('admin'), adminCtrl.getExamenesPorCiclo);
 
+// Plantillas de examen
+router.get('/plantillas-examen',        auth('admin'), adminCtrl.getPlantillasExamen);
+router.get('/plantillas-examen/:id',    auth('admin'), adminCtrl.getPlantillaExamen);
+router.post('/plantillas-examen',       auth('admin'), adminCtrl.crearPlantillaExamen);
+router.put('/plantillas-examen/:id',    auth('admin'), adminCtrl.actualizarPlantillaExamen);
+router.delete('/plantillas-examen/:id', auth('admin'), adminCtrl.eliminarPlantillaExamen);
+
 // Exámenes y calificaciones
 router.post('/examen', auth('admin'), adminCtrl.crearExamen);
 router.post('/examen/:examenId/calificaciones', auth('admin'), adminCtrl.registrarCalificaciones);

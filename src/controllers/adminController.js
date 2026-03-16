@@ -6,7 +6,7 @@ const multer = require('multer');
 const QRCode = require('qrcode');
 const ExcelJS = require('exceljs');
 const { google } = require('googleapis');
-const { sequelize, Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, NotaCurso, Material, ConceptoPago } = require('../models');
+const { sequelize, Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, NotaCurso, Material, ConceptoPago, PlantillaExamen, PlantillaSeccion, PlantillaCurso } = require('../models');
 const { parsearExcelSimulacro, CURSOS_SIMULACRO } = require('../utils/parsearExcelSimulacro');
 const { generarToken } = require('../utils/tokenUtils');
 const { sendCredentials, sendWelcomeCiclo } = require('../utils/emailService');
@@ -718,17 +718,32 @@ exports.crearExamen = async (req, res) => {
       cicloId, semana, tipoExamen, subtipoExamen,
       fecha, cantidadPreguntas,
       puntajeBuena, puntajeMala,
+      // Nuevos campos para plantilla
+      plantillaId, configCursos,
     } = req.body;
+
+    // Si hay plantilla, usar su nombre como subtipo y su tipo_calculo
+    let subtipoFinal = subtipoExamen || null;
+    let tipoFinal    = tipoExamen    || null;
+    if (plantillaId) {
+      const plantilla = await PlantillaExamen.findByPk(plantillaId);
+      if (plantilla) {
+        subtipoFinal = plantilla.nombre;
+        tipoFinal    = tipoFinal || plantilla.tipo_calculo;
+      }
+    }
 
     const examen = await Examen.create({
       ciclo_id:               cicloId,
       semana,
-      tipo_examen:            tipoExamen,
-      subtipo_examen:         subtipoExamen  || null,
+      tipo_examen:            tipoFinal,
+      subtipo_examen:         subtipoFinal,
       fecha,
       cantidad_preguntas:     cantidadPreguntas || null,
       puntaje_pregunta_buena: puntajeBuena  != null ? puntajeBuena : 4.00,
       puntaje_pregunta_mala:  puntajeMala   != null ? puntajeMala  : 1.00,
+      plantilla_id:           plantillaId   || null,
+      config_cursos_json:     configCursos  ? JSON.stringify(configCursos) : null,
     });
 
     res.status(201).json(examen);
@@ -2054,4 +2069,209 @@ exports.getConfigAsistencia = (_req, res) => {
     horaFinPuntual: '08:15',
     horaLimite: '23:59',
   });
+};
+
+// ===================== PLANTILLAS DE EXAMEN (CRUD) =====================
+
+/** GET /api/admin/plantillas-examen — Listar todas las plantillas */
+exports.getPlantillasExamen = async (req, res) => {
+  try {
+    const plantillas = await PlantillaExamen.findAll({
+      where: { activo: 1 },
+      include: [
+        {
+          model: PlantillaSeccion,
+          as: 'Secciones',
+          required: false,
+          include: [{ model: PlantillaCurso, as: 'Cursos', required: false, order: [['orden', 'ASC']] }],
+          order: [['orden', 'ASC']],
+        },
+        {
+          model: PlantillaCurso,
+          as: 'Cursos',
+          required: false,
+          where: { seccion_id: null },
+          order: [['orden', 'ASC']],
+        },
+      ],
+      order: [['nombre', 'ASC']],
+    });
+    res.json(plantillas);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+/** GET /api/admin/plantillas-examen/:id — Obtener plantilla con detalle */
+exports.getPlantillaExamen = async (req, res) => {
+  try {
+    const plantilla = await PlantillaExamen.findByPk(req.params.id, {
+      include: [
+        {
+          model: PlantillaSeccion,
+          as: 'Secciones',
+          required: false,
+          include: [{ model: PlantillaCurso, as: 'Cursos', required: false }],
+        },
+        {
+          model: PlantillaCurso,
+          as: 'Cursos',
+          required: false,
+          where: { seccion_id: null },
+        },
+      ],
+    });
+    if (!plantilla) return res.status(404).json({ error: 'Plantilla no encontrada' });
+    res.json(plantilla);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+/**
+ * POST /api/admin/plantillas-examen
+ * Body: { nombre, descripcion?, tipo_calculo, tiene_secciones, secciones?, cursos? }
+ *
+ * Si tiene_secciones=true: secciones = [{ nombre, orden, cursos: [{nombre, cantidadPreguntas, puntajeBuena, puntajeMala, orden}] }]
+ * Si tiene_secciones=false: cursos = [{nombre, cantidadPreguntas, puntajeBuena, puntajeMala, orden}]
+ */
+exports.crearPlantillaExamen = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { nombre, descripcion, tipo_calculo, tiene_secciones, secciones = [], cursos = [] } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'nombre es requerido' });
+
+    const plantilla = await PlantillaExamen.create({
+      nombre, descripcion: descripcion || null,
+      tipo_calculo: tipo_calculo || 'buenas_malas',
+      tiene_secciones: tiene_secciones ? 1 : 0,
+      activo: 1,
+    }, { transaction: t });
+
+    if (tiene_secciones) {
+      for (let si = 0; si < secciones.length; si++) {
+        const sec = secciones[si];
+        const seccionCreada = await PlantillaSeccion.create({
+          plantilla_id: plantilla.id,
+          nombre: sec.nombre,
+          orden: sec.orden ?? si,
+        }, { transaction: t });
+
+        for (let ci = 0; ci < (sec.cursos || []).length; ci++) {
+          const cur = sec.cursos[ci];
+          await PlantillaCurso.create({
+            plantilla_id:       plantilla.id,
+            seccion_id:         seccionCreada.id,
+            nombre:             cur.nombre,
+            cantidad_preguntas: cur.cantidadPreguntas ?? null,
+            puntaje_buena:      cur.puntajeBuena ?? 4.000,
+            puntaje_mala:       cur.puntajeMala  ?? 1.000,
+            orden:              cur.orden ?? ci,
+          }, { transaction: t });
+        }
+      }
+    } else {
+      for (let ci = 0; ci < cursos.length; ci++) {
+        const cur = cursos[ci];
+        await PlantillaCurso.create({
+          plantilla_id:       plantilla.id,
+          seccion_id:         null,
+          nombre:             cur.nombre,
+          cantidad_preguntas: cur.cantidadPreguntas ?? null,
+          puntaje_buena:      cur.puntajeBuena ?? 4.000,
+          puntaje_mala:       cur.puntajeMala  ?? 1.000,
+          orden:              cur.orden ?? ci,
+        }, { transaction: t });
+      }
+    }
+
+    await t.commit();
+    res.status(201).json({ id: plantilla.id, nombre: plantilla.nombre });
+  } catch (e) {
+    await t.rollback();
+    res.status(500).json({ error: e.message });
+  }
+};
+
+/**
+ * PUT /api/admin/plantillas-examen/:id — Actualizar plantilla (reemplaza secciones/cursos)
+ */
+exports.actualizarPlantillaExamen = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const plantilla = await PlantillaExamen.findByPk(req.params.id);
+    if (!plantilla) return res.status(404).json({ error: 'Plantilla no encontrada' });
+
+    const { nombre, descripcion, tipo_calculo, tiene_secciones, secciones = [], cursos = [] } = req.body;
+
+    await plantilla.update({
+      nombre:          nombre          ?? plantilla.nombre,
+      descripcion:     descripcion     ?? plantilla.descripcion,
+      tipo_calculo:    tipo_calculo    ?? plantilla.tipo_calculo,
+      tiene_secciones: tiene_secciones != null ? (tiene_secciones ? 1 : 0) : plantilla.tiene_secciones,
+    }, { transaction: t });
+
+    // Eliminar secciones y cursos existentes (cascade elimina cursos de secciones)
+    await PlantillaSeccion.destroy({ where: { plantilla_id: plantilla.id }, transaction: t });
+    await PlantillaCurso.destroy({ where: { plantilla_id: plantilla.id }, transaction: t });
+
+    const usaSecciones = tiene_secciones != null ? tiene_secciones : plantilla.tiene_secciones;
+
+    if (usaSecciones) {
+      for (let si = 0; si < secciones.length; si++) {
+        const sec = secciones[si];
+        const seccionCreada = await PlantillaSeccion.create({
+          plantilla_id: plantilla.id,
+          nombre: sec.nombre,
+          orden: sec.orden ?? si,
+        }, { transaction: t });
+
+        for (let ci = 0; ci < (sec.cursos || []).length; ci++) {
+          const cur = sec.cursos[ci];
+          await PlantillaCurso.create({
+            plantilla_id:       plantilla.id,
+            seccion_id:         seccionCreada.id,
+            nombre:             cur.nombre,
+            cantidad_preguntas: cur.cantidadPreguntas ?? null,
+            puntaje_buena:      cur.puntajeBuena ?? 4.000,
+            puntaje_mala:       cur.puntajeMala  ?? 1.000,
+            orden:              cur.orden ?? ci,
+          }, { transaction: t });
+        }
+      }
+    } else {
+      for (let ci = 0; ci < cursos.length; ci++) {
+        const cur = cursos[ci];
+        await PlantillaCurso.create({
+          plantilla_id:       plantilla.id,
+          seccion_id:         null,
+          nombre:             cur.nombre,
+          cantidad_preguntas: cur.cantidadPreguntas ?? null,
+          puntaje_buena:      cur.puntajeBuena ?? 4.000,
+          puntaje_mala:       cur.puntajeMala  ?? 1.000,
+          orden:              cur.orden ?? ci,
+        }, { transaction: t });
+      }
+    }
+
+    await t.commit();
+    res.json({ ok: true });
+  } catch (e) {
+    await t.rollback();
+    res.status(500).json({ error: e.message });
+  }
+};
+
+/** DELETE /api/admin/plantillas-examen/:id — Eliminar plantilla (solo si no tiene exámenes) */
+exports.eliminarPlantillaExamen = async (req, res) => {
+  try {
+    const plantilla = await PlantillaExamen.findByPk(req.params.id);
+    if (!plantilla) return res.status(404).json({ error: 'Plantilla no encontrada' });
+
+    const enUso = await Examen.count({ where: { plantilla_id: plantilla.id } });
+    if (enUso > 0) {
+      // Soft delete: solo desactivar
+      await plantilla.update({ activo: 0 });
+      return res.json({ ok: true, mensaje: 'Plantilla desactivada (tiene exámenes asociados)' });
+    }
+
+    await plantilla.destroy();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 };
