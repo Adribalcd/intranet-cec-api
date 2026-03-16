@@ -14,6 +14,9 @@ const Examen = sequelize.define('Examen', {
   // Campos para simulacros OMR por área
   area:                   { type: DataTypes.CHAR(1),        allowNull: true,  defaultValue: null },
   ponderaciones_json:     { type: DataTypes.TEXT,           allowNull: true,  defaultValue: null },
+  // Plantilla de examen
+  plantilla_id:           { type: DataTypes.INTEGER,        allowNull: true,  defaultValue: null },
+  config_cursos_json:     { type: DataTypes.TEXT,           allowNull: true,  defaultValue: null },
 }, { tableName: 'examen', timestamps: false });
 
 module.exports = Examen;
