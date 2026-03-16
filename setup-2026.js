@@ -186,9 +186,9 @@ async function setup() {
     console.log('\n👤 Creando usuarios admin...');
 
     const USUARIOS = [
-      { usuario: 'admin',          contrasena: 'Admin2026*CEC',     nombre: 'Administrador General', rol: 'general'   },
-      { usuario: 'academico',      contrasena: 'Academico2026*CEC', nombre: 'Coordinador Académico', rol: 'academico' },
-      { usuario: 'pagos',          contrasena: 'Pagos2026*CEC',     nombre: 'Responsable de Pagos',  rol: 'pagos'     },
+      { usuario: 'admin',     contrasena: 'cec@Adm!n#7x2026',   nombre: 'Administrador General', rol: 'general'   },
+      { usuario: 'academico', contrasena: 'cec@Ac4d!3m#2026',   nombre: 'Coordinador Académico', rol: 'academico' },
+      { usuario: 'pagos',     contrasena: 'cec@P4g0s#x!2026',   nombre: 'Responsable de Pagos',  rol: 'pagos'     },
     ];
 
     const resultados = [];
