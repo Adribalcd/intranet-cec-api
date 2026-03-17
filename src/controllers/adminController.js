@@ -1356,30 +1356,93 @@ exports.uploadExcelMatriculaMiddleware = (req, res, next) => {
 exports.plantillaMasivaExcel = async (_req, res) => {
   try {
     const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Intranet CEC Camargo';
+
+    // ── Hoja 1: Datos ──────────────────────────────────────────────────────────
     const sheet = workbook.addWorksheet('Matricula');
 
     sheet.columns = [
-      { header: 'DNI', key: 'dni', width: 14 },
-      { header: 'Nombres', key: 'nombres', width: 25 },
-      { header: 'Apellidos', key: 'apellidos', width: 25 },
+      { header: 'DNI',             key: 'dni',             width: 14 },
+      { header: 'Nombres',         key: 'nombres',         width: 24 },
+      { header: 'Apellidos',       key: 'apellidos',       width: 24 },
       { header: 'FechaNacimiento', key: 'fechaNacimiento', width: 18 },
-      { header: 'Celular', key: 'celular', width: 14 },
-      { header: 'Email', key: 'email', width: 30 },
+      { header: 'Celular',         key: 'celular',         width: 14 },
+      { header: 'Email',           key: 'email',           width: 30 },
+      { header: 'Universidad',     key: 'universidad',     width: 20 },
+      { header: 'Area',            key: 'area',            width: 8  },
+      { header: 'Carrera',         key: 'carrera',         width: 35 },
     ];
 
-    sheet.getRow(1).font = { bold: true };
-    // Instrucción: si el alumno ya existe, basta con el DNI; el ciclo se elige en el formulario
-    sheet.addRow(['12345678', 'Juan Carlos', 'Pérez García', '2005-03-15', '999888777', 'apoderado@email.com']);
-    sheet.addRow(['87654321', 'María', 'López Ríos', '2006-07-20', '987654321', '']);
-    sheet.addRow(['11223344', '', '', '', '', '']); // Solo DNI (alumno ya existe)
+    // Estilo cabecera
+    const hdrRow = sheet.getRow(1);
+    hdrRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    hdrRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A9396' } };
+    hdrRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    hdrRow.height = 20;
+    // Colorear cabeceras vocacional diferente
+    ['G1','H1','I1'].forEach(ref => {
+      sheet.getCell(ref).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } };
+    });
 
-    // Añadir nota explicativa en la fila 5
-    sheet.getRow(5).getCell(1).value = '← Si el alumno ya existe, solo llena el DNI. Si es nuevo, completa todos los campos.';
-    sheet.getRow(5).getCell(1).font = { italic: true, color: { argb: 'FF888888' } };
+    // Filas de ejemplo
+    sheet.addRow(['12345678','Juan Carlos','Pérez García', '2005-03-15','999888777','juan@email.com','San Marcos','A','Medicina Humana']);
+    sheet.addRow(['87654321','María',      'López Ríos',   '2006-07-20','987654321','',              'UNI',       '',  'Ingeniería Civil']);
+    sheet.addRow(['11223344','',           '',             '',          '',          '',              '',          '',  '']); // alumno existente
+
+    // Nota al pie
+    const notaRow = sheet.addRow([]);
+    notaRow.getCell(1).value = '↑ Si el alumno ya existe solo llena DNI (cols 2-6 opcionales). Las cols 7-9 son opcionales para todos.';
+    notaRow.getCell(1).font = { italic: true, color: { argb: 'FF888888' }, size: 10 };
+    sheet.mergeCells(`A${notaRow.number}:I${notaRow.number}`);
+
+    // ── Hoja 2: Instrucciones ──────────────────────────────────────────────────
+    const instr = workbook.addWorksheet('Instrucciones');
+    instr.getColumn(1).width = 22;
+    instr.getColumn(2).width = 70;
+
+    const addTitle = (text, row) => {
+      instr.getCell(`A${row}`).value = text;
+      instr.getCell(`A${row}`).font = { bold: true, color: { argb: 'FF0D4F5C' }, size: 12 };
+      instr.mergeCells(`A${row}:B${row}`);
+    };
+    const addRow = (col, desc, row) => {
+      instr.getCell(`A${row}`).value = col;
+      instr.getCell(`A${row}`).font = { bold: true };
+      instr.getCell(`B${row}`).value = desc;
+    };
+
+    addTitle('INSTRUCCIONES — Matrícula Masiva', 1);
+    instr.getRow(2).height = 6;
+    addTitle('Columnas obligatorias (para alumnos nuevos)', 3);
+    addRow('DNI',             'DNI del alumno (8 dígitos). También sirve como CÓDIGO de acceso.',            4);
+    addRow('Nombres',         'Nombres completos del alumno.',                                               5);
+    addRow('Apellidos',       'Apellidos completos.',                                                        6);
+    addRow('FechaNacimiento', 'Formato AAAA-MM-DD  (ej: 2005-03-15).',                                     7);
+    addRow('Celular',         'Número de celular. Forma parte de la contraseña generada.',                   8);
+    addRow('Email',           'Correo del apoderado o alumno. Si está vacío se usa DNI@cec.edu.pe.',        9);
+    instr.getRow(10).height = 6;
+    addTitle('Columnas opcionales (área / carrera)', 11);
+    addRow('Universidad',     'Valores válidos: San Marcos  |  UNI  |  Otra  |  (vacío = Por definir)',    12);
+    addRow('Area',            'Solo para San Marcos. Valores: A  B  C  D  E   (una sola letra mayúscula)', 13);
+    addRow('Carrera',         'Nombre de la carrera preferida. Escribe libremente si no está en el listado.',14);
+    instr.getRow(15).height = 6;
+    addTitle('Notas generales', 16);
+    instr.getCell('A17').value = '•';
+    instr.getCell('B17').value = 'Si el alumno ya existe en el sistema, solo llena DNI — el sistema lo reconoce automáticamente.';
+    instr.getCell('A18').value = '•';
+    instr.getCell('B18').value = 'La contraseña generada para alumnos nuevos es:  AÑO_NACIMIENTO-CELULAR-DNI  (ej: 2005-999888777-12345678).';
+    instr.getCell('A19').value = '•';
+    instr.getCell('B19').value = 'El ciclo se selecciona en el formulario web, NO se escribe en el Excel.';
+    instr.getCell('A20').value = '•';
+    instr.getCell('B20').value = 'Las filas en blanco o sin DNI son ignoradas automáticamente.';
+
+    // Estilo celdas de instrucciones
+    [17,18,19,20].forEach(r => {
+      instr.getCell(`A${r}`).font = { color: { argb: 'FF0A9396' }, bold: true };
+    });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename=plantilla_matricula_masiva.xlsx');
-
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
@@ -1407,9 +1470,12 @@ exports.matriculaMasivaExcel = async (req, res) => {
       const fechaNac   = row.getCell(4).value?.toString().trim() || '';
       const celular    = row.getCell(5).value?.toString().trim() || '';
       const email      = row.getCell(6).value?.toString().trim() || '';
+      const univMeta   = row.getCell(7).value?.toString().trim() || null;
+      const area       = row.getCell(8).value?.toString().trim().toUpperCase() || null;
+      const carreraPref = row.getCell(9).value?.toString().trim() || null;
       // cicloId siempre viene del formulario (cicloIdDefault), no del Excel
       const cicloId    = cicloIdDefault;
-      if (dni && dni.length > 0) filas.push({ rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId });
+      if (dni && dni.length > 0) filas.push({ rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId, univMeta, area, carreraPref });
     });
 
     if (filas.length === 0) return res.status(400).json({ error: 'No se encontraron filas válidas' });
@@ -1419,7 +1485,7 @@ exports.matriculaMasivaExcel = async (req, res) => {
 
     for (const fila of filas) {
       try {
-        const { rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId } = fila;
+        const { rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId, univMeta, area, carreraPref } = fila;
 
         if (!cicloId) { errores.push(`Fila ${rowNum}: CicloId no especificado`); continue; }
 
@@ -1467,6 +1533,9 @@ exports.matriculaMasivaExcel = async (req, res) => {
             alumno_id: alumno.id,
             ciclo_id: cicloId,
             fecha_registro: new Date(),
+            ...(univMeta && { universidad_meta: univMeta }),
+            ...(area && { area }),
+            ...(carreraPref && { carrera_preferida: carreraPref }),
           });
           matriculados++;
         }
