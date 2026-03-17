@@ -429,7 +429,9 @@ exports.restaurarPasswordPorDefecto = async (req, res) => {
 
 exports.matriculaManual = async (req, res) => {
   try {
-    const { codigoAlumno, cicloId, esEscolar, area, carreraPref, univMeta } = req.body;
+    const { codigoAlumno, esEscolar, area, carreraPref, univMeta } = req.body;
+    const cicloId = parseInt(req.body.cicloId);
+    if (!cicloId || isNaN(cicloId)) return res.status(400).json({ error: 'Debe seleccionar un ciclo válido' });
 
     const alumno = await Alumno.findOne({ where: { codigo: codigoAlumno } });
     if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
@@ -448,6 +450,7 @@ exports.matriculaManual = async (req, res) => {
     }
 
     const ciclo = await Ciclo.findByPk(cicloId);
+    if (!ciclo) return res.status(404).json({ error: 'Ciclo no encontrado' });
 
     const matricula = await Matricula.create({
       alumno_id:         alumno.id,
@@ -462,7 +465,7 @@ exports.matriculaManual = async (req, res) => {
     if (esEscolar) {
       await alumno.update({ es_escolar: true });
       const anioInicio = ciclo && ciclo.fecha_inicio
-        ? new Date(ciclo.fecha_inicio + 'T12:00:00').getFullYear()
+        ? new Date(ciclo.fecha_inicio).getFullYear()
         : new Date().getFullYear();
 
       const conceptosEscolaridad = Array.from({ length: 10 }, (_, i) => ({
