@@ -429,7 +429,7 @@ exports.restaurarPasswordPorDefecto = async (req, res) => {
 
 exports.matriculaManual = async (req, res) => {
   try {
-    const { codigoAlumno, cicloId, esEscolar } = req.body;
+    const { codigoAlumno, cicloId, esEscolar, area, carreraPref, univMeta } = req.body;
 
     const alumno = await Alumno.findOne({ where: { codigo: codigoAlumno } });
     if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
@@ -450,38 +450,32 @@ exports.matriculaManual = async (req, res) => {
     const ciclo = await Ciclo.findByPk(cicloId);
 
     const matricula = await Matricula.create({
-      alumno_id: alumno.id,
-      ciclo_id: cicloId,
-      fecha_registro: new Date(),
+      alumno_id:         alumno.id,
+      ciclo_id:          cicloId,
+      fecha_registro:    new Date(),
+      area:              area              || null,
+      carrera_preferida: carreraPref       || null,
+      universidad_meta:  univMeta          || 'Por definir',
     });
 
-    // ── Escolaridad: auto-generar 10 cuotas de S/70 ──────────────────────
+    // ── Escolaridad: auto-generar 10 cuotas numeradas de S/70 ────────────
     if (esEscolar) {
       await alumno.update({ es_escolar: true });
+      const anioInicio = ciclo && ciclo.fecha_inicio
+        ? new Date(ciclo.fecha_inicio + 'T12:00:00').getFullYear()
+        : new Date().getFullYear();
 
-      // Determinar mes/año inicial desde fecha_inicio del ciclo
-      const fechaInicio = ciclo && ciclo.fecha_inicio ? new Date(ciclo.fecha_inicio + 'T12:00:00') : new Date();
-      const mesInicio  = fechaInicio.getMonth() + 1; // 1-12
-      const anioInicio = fechaInicio.getFullYear();
-
-      const conceptosEscolaridad = [];
-      for (let i = 0; i < 10; i++) {
-        const mesNum  = ((mesInicio - 1 + i) % 12) + 1;
-        const anioNum = anioInicio + Math.floor((mesInicio - 1 + i) / 12);
-        const mesNombre = new Date(anioNum, mesNum - 1, 1)
-          .toLocaleString('es-PE', { month: 'long' });
-        conceptosEscolaridad.push({
-          ciclo_id:          cicloId,
-          tipo:              'escolaridad',
-          descripcion:       `Escolaridad ${mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1)} ${anioNum}`,
-          mes:               mesNum,
-          anio:              anioNum,
-          monto_opcion_1:    70.00,
-          etiqueta_opcion_1: 'Tarifa escolar',
-          orden:             100 + i,
-          permite_pago_online: false,
-        });
-      }
+      const conceptosEscolaridad = Array.from({ length: 10 }, (_, i) => ({
+        ciclo_id:          cicloId,
+        tipo:              'escolaridad',
+        descripcion:       `Escolaridad Cuota ${i + 1}`,
+        numero_cuota:      i + 1,
+        anio:              anioInicio,
+        monto_opcion_1:    70.00,
+        etiqueta_opcion_1: 'Tarifa escolar',
+        orden:             100 + i,
+        permite_pago_online: false,
+      }));
       await ConceptoPago.bulkCreate(conceptosEscolaridad);
     }
 
@@ -496,6 +490,27 @@ exports.matriculaManual = async (req, res) => {
     }
 
     res.status(201).json({ ...matricula.toJSON(), esEscolarRegistrada: !!esEscolar });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ── Editar área / carrera de una matrícula ───────────────────────────────
+exports.updateMatriculaInfo = async (req, res) => {
+  try {
+    const { matriculaId } = req.params;
+    const { area, carreraPref, univMeta } = req.body;
+
+    const matricula = await Matricula.findByPk(matriculaId);
+    if (!matricula) return res.status(404).json({ error: 'Matrícula no encontrada' });
+
+    await matricula.update({
+      area:              area      !== undefined ? (area || null)      : matricula.area,
+      carrera_preferida: carreraPref !== undefined ? (carreraPref || null) : matricula.carrera_preferida,
+      universidad_meta:  univMeta  !== undefined ? (univMeta || null)  : matricula.universidad_meta,
+    });
+
+    res.json(matricula);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

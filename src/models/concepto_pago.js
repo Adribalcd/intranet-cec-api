@@ -6,7 +6,7 @@ const ConceptoPago = sequelize.define('ConceptoPago', {
   ciclo_id:          { type: DataTypes.INTEGER, allowNull: false },
   tipo:              { type: DataTypes.ENUM('mensualidad', 'matricula', 'materiales', 'escolaridad', 'otro'), defaultValue: 'mensualidad' },
   descripcion:       { type: DataTypes.STRING(120), allowNull: false },
-  mes:               { type: DataTypes.INTEGER, allowNull: true },
+  numero_cuota:      { type: DataTypes.INTEGER, allowNull: true, comment: 'Número de cuota (1, 2, 3...)' },
   anio:              { type: DataTypes.INTEGER, allowNull: true },
   monto_opcion_1:    { type: DataTypes.DECIMAL(8, 2), allowNull: false },
   etiqueta_opcion_1: { type: DataTypes.STRING(60), defaultValue: 'Tarifa A' },

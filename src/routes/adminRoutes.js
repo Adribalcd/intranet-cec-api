@@ -25,6 +25,7 @@ router.post('/alumno/registrar', auth('admin'), adminCtrl.registrarAlumno);
 
 // Matrícula
 router.post('/matricula/manual', auth('admin'), adminCtrl.matriculaManual);
+router.put('/matricula/:matriculaId/info', auth('admin'), adminCtrl.updateMatriculaInfo);
 router.post('/matricula/masiva', auth('admin'), adminCtrl.matriculaMasiva);
 router.post('/matricula/cambiar-ciclo', auth('admin'), adminCtrl.cambiarCicloAlumno);
 router.get('/matricula/plantilla-masiva', auth('admin'), adminCtrl.plantillaMasivaExcel);

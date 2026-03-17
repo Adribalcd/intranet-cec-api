@@ -192,12 +192,9 @@ async function seed() {
     console.log(`✓ ${ciclos.length} ciclos creados`);
 
     // ── Conceptos de pago para Ciclo Anual SM ──────────────────
-    const MESES_PAGO = [
-      { mes: 3, nombre: 'Marzo' }, { mes: 4, nombre: 'Abril' },
-      { mes: 5, nombre: 'Mayo' }, { mes: 6, nombre: 'Junio' },
-      { mes: 7, nombre: 'Julio' }, { mes: 8, nombre: 'Agosto' },
-      { mes: 9, nombre: 'Setiembre' }, { mes: 10, nombre: 'Octubre' },
-      { mes: 11, nombre: 'Noviembre' },
+    const CUOTAS_VENCIMIENTO = [
+      '2025-03-05', '2025-04-05', '2025-05-05', '2025-06-05',
+      '2025-07-05', '2025-08-05', '2025-09-05', '2025-10-05', '2025-11-05',
     ];
     await ConceptoPago.create({
       ciclo_id: cicloAnual.id, tipo: 'matricula', descripcion: 'Matrícula 2025',
@@ -205,17 +202,15 @@ async function seed() {
       monto_opcion_2: 40, etiqueta_opcion_2: 'Tarifa especial',
       fecha_vencimiento: '2025-03-10', orden: 0,
     });
-    for (const { mes, nombre } of MESES_PAGO) {
-      const mesVence = mes === 12 ? 1 : mes + 1;
-      const anioVenceReal = mes === 12 ? 2026 : 2025;
+    for (let i = 0; i < CUOTAS_VENCIMIENTO.length; i++) {
       await ConceptoPago.create({
         ciclo_id: cicloAnual.id, tipo: 'mensualidad',
-        descripcion: `Pensión ${nombre} 2025`,
-        mes, anio: 2025,
+        descripcion: `Pensión Cuota ${i + 1}`,
+        numero_cuota: i + 1, anio: 2025,
         monto_opcion_1: 350, etiqueta_opcion_1: 'Tarifa regular',
         monto_opcion_2: 300, etiqueta_opcion_2: 'Tarifa especial',
-        fecha_vencimiento: `${anioVenceReal}-${String(mesVence).padStart(2,'0')}-05`,
-        orden: mes - 2,
+        fecha_vencimiento: CUOTAS_VENCIMIENTO[i],
+        orden: i + 1,
       });
     }
     await ConceptoPago.create({

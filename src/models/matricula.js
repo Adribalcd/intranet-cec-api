@@ -9,6 +9,9 @@ const Matricula = sequelize.define('Matricula', {
   alumno_id: { type: DataTypes.INTEGER },
   ciclo_id: { type: DataTypes.INTEGER },
   fecha_registro: { type: DataTypes.DATEONLY },
+  area: { type: DataTypes.STRING(1), allowNull: true, comment: 'Área de postulación SM: A, B, C, D, E' },
+  carrera_preferida: { type: DataTypes.STRING(200), allowNull: true, comment: 'Carrera de interés del alumno' },
+  universidad_meta: { type: DataTypes.STRING(50), allowNull: true, comment: 'San Marcos, UNI, Otra, Por definir' },
 }, {
   tableName: 'matricula',
   timestamps: false,
