@@ -496,6 +496,31 @@ exports.matriculaManual = async (req, res) => {
 };
 
 // ── Editar área / carrera de una matrícula ───────────────────────────────
+exports.getMatriculaByAlumno = async (req, res) => {
+  try {
+    const { codigo, cicloId } = req.query;
+    if (!codigo || !cicloId) return res.status(400).json({ error: 'Se requiere codigo y cicloId' });
+
+    const alumno = await Alumno.findOne({ where: { codigo } });
+    if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+
+    const matricula = await Matricula.findOne({
+      where: { alumno_id: alumno.id, ciclo_id: parseInt(cicloId) },
+    });
+    if (!matricula) return res.status(404).json({ error: 'El alumno no está matriculado en ese ciclo' });
+
+    res.json({
+      matriculaId:        matricula.id,
+      alumnoNombre:       `${alumno.nombres} ${alumno.apellidos}`,
+      area:               matricula.area               || '',
+      carrera_preferida:  matricula.carrera_preferida  || '',
+      universidad_meta:   matricula.universidad_meta   || 'Por definir',
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 exports.updateMatriculaInfo = async (req, res) => {
   try {
     const { matriculaId } = req.params;
