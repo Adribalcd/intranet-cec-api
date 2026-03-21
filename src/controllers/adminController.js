@@ -637,25 +637,16 @@ exports.cambiarCicloAlumno = async (req, res) => {
 const DIAS_ACTIVOS = [1, 2, 3, 4, 5, 6]; // Lun–Sáb
 // Ventana "a tiempo": 07:00:00 → 08:15:00
 const HORA_INICIO_ASIS = { h: 7,  m: 0  }; // 07:00
-const HORA_FIN_ASIS    = { h: 8,  m: 15 }; // 08:15
-const HORA_LIMITE_ASIS = { h: 23, m: 59 }; // hasta las 23:59 se acepta (tardanza)
+const HORA_FIN_PUNTUAL = { h: 8, m: 20 }; // 08:20 — después de esta hora es Tardanza
 
 function calcularEstadoAsistencia(ahora = new Date()) {
   const diaSemana = ahora.getDay(); // 0=Dom…6=Sáb
   if (!DIAS_ACTIVOS.includes(diaSemana)) {
     return { valido: false, razon: 'El registro de asistencia solo está activo de lunes a sábado.' };
   }
+  // Sin restricción de hora: cualquier momento Lun-Sáb es válido
   const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
-  const minInicio    = HORA_INICIO_ASIS.h * 60 + HORA_INICIO_ASIS.m; // 420
-  const minFin       = HORA_FIN_ASIS.h   * 60 + HORA_FIN_ASIS.m;    // 495
-  const minLimite    = HORA_LIMITE_ASIS.h * 60 + HORA_LIMITE_ASIS.m;
-
-  if (minutosAhora < minInicio) {
-    return { valido: false, razon: `El registro de asistencia aún no ha comenzado. Inicia a las 07:00 AM.` };
-  }
-  if (minutosAhora > minLimite) {
-    return { valido: false, razon: 'El registro de asistencia ya cerró.' };
-  }
+  const minFin       = HORA_FIN_PUNTUAL.h * 60 + HORA_FIN_PUNTUAL.m; // 500
   const estado = minutosAhora <= minFin ? 'Presente' : 'Tardanza';
   return { valido: true, estado };
 }
@@ -706,7 +697,7 @@ exports.registrarAsistencia = async (req, res) => {
       ciclo_id:      matricula.ciclo_id,
       fecha_hora:    ahora,
       estado,
-      observaciones: estado === 'Tardanza' ? 'Llegó fuera del horario de 07:00–08:15' : null,
+      observaciones: estado === 'Tardanza' ? 'Llegó fuera del horario puntual (07:00–08:20)' : null,
     });
 
     const alumnoData = alumno.toJSON();
