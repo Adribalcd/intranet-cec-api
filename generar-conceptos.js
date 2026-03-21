@@ -30,35 +30,36 @@ function fechaVencimiento(mesOffset) {
 }
 
 // Definición de ciclos a procesar
-// montoEscolaridad: null = no se crea concepto de escolaridad para ese ciclo
+// escolaridad: null = no aplica para ese ciclo
+// escolaridad: { cuotas: N, monto: X } = N cuotas de S/ X, vencimiento mes a mes desde marzo
 const CICLOS_CONFIG = [
   {
-    nombre:             'Anual Escolar',
-    cuotas:             9,
-    montoMatricula:     100.00,
-    montoMensualidad:   400.00,
-    montoEscolaridad:   null,   // ← poner monto si aplica, ej: 150.00
+    nombre:           'Anual Escolar',
+    cuotas:           9,
+    montoMatricula:   100.00,
+    montoMensualidad: 400.00,
+    escolaridad:      { cuotas: 10, monto: 70.00 },  // mar–dic 2026
   },
   {
-    nombre:             'Anual San Marcos',
-    cuotas:             9,
-    montoMatricula:     100.00,
-    montoMensualidad:   370.00,
-    montoEscolaridad:   null,
+    nombre:           'Anual San Marcos',
+    cuotas:           9,
+    montoMatricula:   100.00,
+    montoMensualidad: 370.00,
+    escolaridad:      null,
   },
   {
-    nombre:             'Anual Uni',
-    cuotas:             6,
-    montoMatricula:     100.00,
-    montoMensualidad:   370.00,
-    montoEscolaridad:   null,
+    nombre:           'Anual Uni',
+    cuotas:           6,
+    montoMatricula:   100.00,
+    montoMensualidad: 370.00,
+    escolaridad:      null,
   },
   {
-    nombre:             'Semestral San Marcos',
-    cuotas:             6,
-    montoMatricula:     100.00,
-    montoMensualidad:   370.00,
-    montoEscolaridad:   null,
+    nombre:           'Semestral San Marcos',
+    cuotas:           6,
+    montoMatricula:   100.00,
+    montoMensualidad: 370.00,
+    escolaridad:      null,
   },
 ];
 
@@ -116,20 +117,24 @@ async function run() {
     });
     console.log(`  ✔ Matrícula  S/ ${cfg.montoMatricula}  vence 2026-03-15`);
 
-    // ── Crear escolaridad (si aplica) ──────────────────────────
-    if (cfg.montoEscolaridad) {
-      await ConceptoPago.create({
-        ciclo_id:            ciclo.id,
-        tipo:                'escolaridad',
-        descripcion:         `Escolaridad ${cfg.nombre} 2026`,
-        numero_cuota:        null,
-        monto_opcion_1:      cfg.montoEscolaridad,
-        etiqueta_opcion_1:   'Regular',
-        fecha_vencimiento:   '2026-03-15',
-        orden:               1,
-        permite_pago_online: false,
-      });
-      console.log(`  ✔ Escolaridad  S/ ${cfg.montoEscolaridad}  vence 2026-03-15`);
+    // ── Crear cuotas de escolaridad (si aplica) ────────────────
+    if (cfg.escolaridad) {
+      for (let i = 0; i < cfg.escolaridad.cuotas; i++) {
+        const numeroCuota = i + 1;
+        const vence = fechaVencimiento(i); // i=0→2026-03-15 … i=9→2026-12-15
+        await ConceptoPago.create({
+          ciclo_id:            ciclo.id,
+          tipo:                'escolaridad',
+          descripcion:         `Escolaridad Cuota ${numeroCuota}`,
+          numero_cuota:        numeroCuota,
+          monto_opcion_1:      cfg.escolaridad.monto,
+          etiqueta_opcion_1:   'Regular',
+          fecha_vencimiento:   vence,
+          orden:               20 + numeroCuota,   // después de mensualidades (orden 2..10)
+          permite_pago_online: false,
+        });
+        console.log(`  ✔ Escolaridad Cuota ${numeroCuota}  S/ ${cfg.escolaridad.monto}  vence ${vence}`);
+      }
     }
 
     // ── Crear cuotas ───────────────────────────────────────────
