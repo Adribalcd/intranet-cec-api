@@ -61,7 +61,11 @@ router.post('/examen/:examenId/calificaciones', auth('admin'), adminCtrl.registr
 router.get('/alumno/:codigo', auth('admin'), adminCtrl.getAlumnoByCodigo);
 
 // Restaurar contraseña por defecto
-router.post('/alumno/:codigo/restaurar-password', auth('admin'), adminCtrl.restaurarPasswordPorDefecto);
+router.post('/alumno/:codigo/restaurar-password',    auth('admin'), adminCtrl.restaurarPasswordPorDefecto);
+// Editar datos del alumno
+router.put( '/alumno/:codigo/datos',                 auth('admin'), adminCtrl.editarDatosAlumno);
+// Reenviar credenciales al correo del alumno
+router.post('/alumno/:codigo/reenviar-credenciales', auth('admin'), adminCtrl.reenviarCredenciales);
 
 // Subir foto de alumno
 router.post('/alumno/:codigo/foto', auth('admin'), adminCtrl.uploadFotoMiddleware, adminCtrl.subirFotoAlumno);

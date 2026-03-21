@@ -425,6 +425,61 @@ exports.restaurarPasswordPorDefecto = async (req, res) => {
   }
 };
 
+// ===================== EDITAR DATOS ALUMNO =====================
+
+exports.editarDatosAlumno = async (req, res) => {
+  try {
+    const { codigo } = req.params;
+    const { nombres, apellidos, email, celular, dni, fechaNacimiento, esEscolar } = req.body;
+    const alumno = await Alumno.findOne({ where: { codigo } });
+    if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+
+    const updates = {};
+    if (nombres        !== undefined) updates.nombres         = nombres.trim();
+    if (apellidos      !== undefined) updates.apellidos        = apellidos.trim();
+    if (email          !== undefined) updates.email_alumno     = email.trim();
+    if (celular        !== undefined) updates.celular          = celular.trim() || null;
+    if (dni            !== undefined) updates.dni              = dni.trim() || null;
+    if (fechaNacimiento !== undefined) updates.fecha_nacimiento = fechaNacimiento || null;
+    if (esEscolar      !== undefined) updates.es_escolar       = !!esEscolar;
+
+    await alumno.update(updates);
+    const alumnoData = alumno.toJSON();
+    delete alumnoData.contrasena;
+    res.json({ ok: true, alumno: alumnoData });
+  } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ error: 'El correo ya está en uso por otro alumno.' });
+    }
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== REENVIAR CREDENCIALES =====================
+
+exports.reenviarCredenciales = async (req, res) => {
+  try {
+    const { codigo } = req.params;
+    const alumno = await Alumno.findOne({ where: { codigo } });
+    if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+    if (!alumno.email_alumno || alumno.email_alumno.endsWith('@cec.edu.pe')) {
+      return res.status(400).json({ error: 'El alumno no tiene un correo real configurado.' });
+    }
+
+    // Generar nueva contraseña temporal
+    const nuevaPassword = alumno.dni
+      ? `${alumno.codigo}-${alumno.dni.slice(-4)}`
+      : alumno.codigo;
+    const hash = await bcrypt.hash(nuevaPassword, 10);
+    await alumno.update({ contrasena: hash });
+
+    sendCredentials(alumno.email_alumno, alumno.nombres, alumno.codigo, nuevaPassword).catch(() => {});
+    res.json({ ok: true, mensaje: `Credenciales enviadas a ${alumno.email_alumno}` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // ===================== MATRÍCULA =====================
 
 exports.matriculaManual = async (req, res) => {
@@ -1390,6 +1445,7 @@ exports.plantillaMasivaExcel = async (_req, res) => {
       { header: 'Universidad',     key: 'universidad',     width: 20 },
       { header: 'Area',            key: 'area',            width: 8  },
       { header: 'Carrera',         key: 'carrera',         width: 35 },
+      { header: 'Escolar',         key: 'escolar',         width: 10 },
     ];
 
     // Estilo cabecera
@@ -1402,11 +1458,12 @@ exports.plantillaMasivaExcel = async (_req, res) => {
     ['G1','H1','I1'].forEach(ref => {
       sheet.getCell(ref).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } };
     });
+    sheet.getCell('J1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F766E' } };
 
     // Filas de ejemplo
-    sheet.addRow(['12345678','Juan Carlos','Pérez García', '2005-03-15','999888777','juan@email.com','San Marcos','A','Medicina Humana']);
-    sheet.addRow(['87654321','María',      'López Ríos',   '2006-07-20','987654321','',              'UNI',       '',  'Ingeniería Civil']);
-    sheet.addRow(['11223344','',           '',             '',          '',          '',              '',          '',  '']); // alumno existente
+    sheet.addRow(['12345678','Juan Carlos','Pérez García', '2005-03-15','999888777','juan@email.com','San Marcos','A','Medicina Humana','NO']);
+    sheet.addRow(['87654321','María',      'López Ríos',   '2006-07-20','987654321','',              'UNI',       '',  'Ingeniería Civil','NO']);
+    sheet.addRow(['11223344','',           '',             '',          '',          '',              '',          '',  '',               'SI']); // escolar
 
     // Nota al pie
     const notaRow = sheet.addRow([]);
@@ -1492,9 +1549,11 @@ exports.matriculaMasivaExcel = async (req, res) => {
       const univMeta   = row.getCell(7).value?.toString().trim() || null;
       const area       = row.getCell(8).value?.toString().trim().toUpperCase() || null;
       const carreraPref = row.getCell(9).value?.toString().trim() || null;
+      const escolarRaw  = row.getCell(10).value?.toString().trim().toUpperCase() || '';
+      const esEscolar   = escolarRaw === 'SI' || escolarRaw === 'SÍ' || escolarRaw === '1' || escolarRaw === 'TRUE';
       // cicloId siempre viene del formulario (cicloIdDefault), no del Excel
       const cicloId    = cicloIdDefault;
-      if (dni && dni.length > 0) filas.push({ rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId, univMeta, area, carreraPref });
+      if (dni && dni.length > 0) filas.push({ rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId, univMeta, area, carreraPref, esEscolar });
     });
 
     if (filas.length === 0) return res.status(400).json({ error: 'No se encontraron filas válidas' });
@@ -1504,7 +1563,7 @@ exports.matriculaMasivaExcel = async (req, res) => {
 
     for (const fila of filas) {
       try {
-        const { rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId, univMeta, area, carreraPref } = fila;
+        const { rowNum, dni, nombres, apellidos, fechaNac, celular, email, cicloId, univMeta, area, carreraPref, esEscolar } = fila;
 
         if (!cicloId) { errores.push(`Fila ${rowNum}: CicloId no especificado`); continue; }
 
@@ -1523,17 +1582,17 @@ exports.matriculaMasivaExcel = async (req, res) => {
           const passwordRaw = `${anioBirth}-${celular || dni}-${dni}`;
           const hash = await bcrypt.hash(passwordRaw, 10);
 
-          // Código generado = DNI
-          const existeEmail = email ? await Alumno.findOne({ where: { email_alumno: email } }) : null;
-          const emailFinal = email && !existeEmail ? email : `${dni}@cec.edu.pe`;
+          // Usar el email tal cual; si no viene, generar uno. La DB rechazará duplicados.
+          const emailFinal = email || `${dni}@cec.edu.pe`;
 
           alumno = await Alumno.create({
-            codigo: dni,
+            codigo:       dni,
             nombres,
             apellidos,
             email_alumno: emailFinal,
-            contrasena: hash,
-            celular: celular || null,
+            contrasena:   hash,
+            celular:      celular || null,
+            es_escolar:   esEscolar || false,
           });
 
           creados++;
