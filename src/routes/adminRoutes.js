@@ -133,6 +133,7 @@ router.put('/concepto-pago/:id',                 auth('admin', ['general', 'pago
 router.delete('/concepto-pago/:id',              auth('admin', ['general', 'pagos']), pagosCtrl.deleteConcepto);
 router.get('/ciclos/:cicloId/resumen-pagos',     auth('admin', ['general', 'pagos']), pagosCtrl.getResumenCiclo);
 router.get('/alumnos/:alumnoId/pagos/:cicloId',  auth('admin', ['general', 'pagos']), pagosCtrl.getPagosAlumno);
+router.get('/alumnos/:alumnoId/escolaridad',     auth('admin', ['general', 'pagos']), pagosCtrl.getPagosEscolaridadAlumno);
 router.post('/pago',                             auth('admin', ['general', 'pagos']), pagosCtrl.registrarPago);
 router.put('/pago/:id',                          auth('admin', ['general', 'pagos']), pagosCtrl.updatePago);
 router.delete('/pago/:id',                       auth('admin', ['general', 'pagos']), pagosCtrl.deletePago);

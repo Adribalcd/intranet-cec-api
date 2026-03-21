@@ -1,5 +1,34 @@
 const { ConceptoPago, Pago, Alumno, Matricula, Ciclo, ConfigPagosCiclo } = require('../models');
 
+const NOMBRE_CICLO_ESCOLARIDAD = 'Escolaridad 2026';
+
+async function getItemsEscolaridad(alumnoId, hoy) {
+  const cicloEsc = await Ciclo.findOne({ where: { nombres: NOMBRE_CICLO_ESCOLARIDAD } });
+  if (!cicloEsc) return null;
+
+  const conceptos = await ConceptoPago.findAll({
+    where: { ciclo_id: cicloEsc.id },
+    order: [['orden', 'ASC']],
+  });
+  const pagos = await Pago.findAll({ where: { alumno_id: alumnoId } });
+  const pagoMap = {};
+  pagos.forEach(p => { pagoMap[p.concepto_id] = p; });
+
+  const items = conceptos.map(c => {
+    const pago = pagoMap[c.id] || null;
+    const vence = c.fecha_vencimiento ? new Date(c.fecha_vencimiento + 'T12:00:00') : null;
+    let estado;
+    if (pago) {
+      estado = pago.estado === 'confirmado' ? 'pagado' : pago.estado === 'pendiente' ? 'en_revision' : 'rechazado';
+    } else {
+      estado = (vence && vence < hoy) ? 'vencido' : 'pendiente';
+    }
+    return { concepto: c, pago, estado, puedePagarOnline: false };
+  });
+
+  return { cicloId: cicloEsc.id, items };
+}
+
 // ── Conceptos ──────────────────────────────────────────────────
 
 exports.getConceptos = async (req, res) => {
@@ -94,6 +123,26 @@ exports.getPagosAlumno = async (req, res) => {
     const { alumnoId, cicloId } = req.params;
     const conceptos = await ConceptoPago.findAll({
       where: { ciclo_id: cicloId },
+      include: [{
+        model: Pago, as: 'Pagos',
+        where: { alumno_id: alumnoId },
+        required: false,
+      }],
+      order: [['orden', 'ASC'], ['id', 'ASC']],
+    });
+    res.json(conceptos);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+exports.getPagosEscolaridadAlumno = async (req, res) => {
+  try {
+    const { alumnoId } = req.params;
+    const hoy = new Date();
+    const escData = await getItemsEscolaridad(alumnoId, hoy);
+    if (!escData) return res.json([]);
+    // Devolver en el mismo formato que getPagosAlumno (lista de ConceptoPago con Pagos[])
+    const conceptos = await ConceptoPago.findAll({
+      where: { ciclo_id: escData.cicloId },
       include: [{
         model: Pago, as: 'Pagos',
         where: { alumno_id: alumnoId },
@@ -301,6 +350,7 @@ exports.pagoOnline = async (req, res) => {
 exports.getPagosAlumnoPublico = async (req, res) => {
   try {
     const alumnoId = req.usuario.id;
+    const alumno = await Alumno.findByPk(alumnoId, { attributes: ['id', 'es_escolar'] });
     const matriculas = await Matricula.findAll({
       where: { alumno_id: alumnoId },
       include: [{
@@ -402,6 +452,36 @@ exports.getPagosAlumnoPublico = async (req, res) => {
         config: safeConfig,
         items,
       });
+    }
+
+    // ── Escolaridad (solo si es_escolar = true) ────────────────
+    if (alumno && alumno.es_escolar) {
+      const escData = await getItemsEscolaridad(alumnoId, hoy);
+      if (escData && escData.items.length > 0) {
+        // Buscar config del ciclo escolaridad para las cuentas bancarias
+        const configEsc = await ConfigPagosCiclo.findOne({ where: { ciclo_id: escData.cicloId } });
+        const safeConfigEsc = configEsc ? {
+          permitePagarOnline: false,
+          permite_transferencia: false,
+          permite_yape_plin: false,
+          bcp_cuenta: configEsc.bcp_cuenta,
+          bcp_cci: configEsc.bcp_cci,
+          bbva_cuenta: configEsc.bbva_cuenta,
+          bbva_cci: configEsc.bbva_cci,
+          interbank_cuenta: configEsc.interbank_cuenta,
+          interbank_cci: configEsc.interbank_cci,
+          yape_numero: configEsc.yape_numero,
+          plin_numero: configEsc.plin_numero,
+          whatsapp_numero: configEsc.whatsapp_numero || null,
+        } : (result[0]?.config || {});
+
+        result.push({
+          ciclo: { id: escData.cicloId, nombres: NOMBRE_CICLO_ESCOLARIDAD },
+          config: safeConfigEsc,
+          items: escData.items,
+          esEscolaridad: true,
+        });
+      }
     }
 
     res.json(result);
