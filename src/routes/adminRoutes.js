@@ -142,7 +142,8 @@ router.put('/alumno/:codigo/suspender',          auth('admin', ['general', 'pago
 // Configuración de pagos online por ciclo
 router.get('/ciclos/:cicloId/config-pagos', auth('admin', ['general', 'pagos']), pagosCtrl.getConfigPagos);
 router.put('/ciclos/:cicloId/config-pagos', auth('admin', ['general', 'pagos']), pagosCtrl.upsertConfigPagos);
-router.put('/pagos/ocultar-todos',          auth('admin', ['general', 'pagos']), pagosCtrl.ocultarPagosTodos);
+router.get('/pagos/visibilidad-global',     auth('admin', ['general', 'pagos']), pagosCtrl.estadoVisibilidadGlobal);
+router.put('/pagos/visibilidad-global',     auth('admin', ['general', 'pagos']), pagosCtrl.setVisibilidadGlobal);
 
 // Gestión de pagos online pendientes y confirmación
 router.get('/pagos/pendientes-online', auth('admin', ['general', 'pagos']), pagosCtrl.getPagosOnlinePendientes);

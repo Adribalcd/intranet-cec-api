@@ -63,18 +63,27 @@ exports.upsertConfigPagos = async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
-exports.ocultarPagosTodos = async (req, res) => {
+exports.estadoVisibilidadGlobal = async (req, res) => {
   try {
     const { Ciclo } = require('../models');
-    const ciclos = await Ciclo.findAll({ attributes: ['id'] });
+    const ciclos  = await Ciclo.findAll({ attributes: ['id'] });
+    const configs = await ConfigPagosCiclo.findAll({ attributes: ['ciclo_id', 'pagos_visible'] });
+    const mapaVisible = Object.fromEntries(configs.map(c => [c.ciclo_id, c.pagos_visible]));
+    const total    = ciclos.length;
+    const visibles = ciclos.filter(c => mapaVisible[c.id] === true).length;
+    res.json({ total, visibles, ocultos: total - visibles, todos_ocultos: visibles === 0 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+exports.setVisibilidadGlobal = async (req, res) => {
+  try {
+    const { Ciclo } = require('../models');
+    const visible = req.body.visible === true;
+    const ciclos  = await Ciclo.findAll({ attributes: ['id'] });
     for (const ciclo of ciclos) {
-      const [config] = await ConfigPagosCiclo.findOrCreate({
-        where: { ciclo_id: ciclo.id },
-        defaults: { ciclo_id: ciclo.id, pagos_visible: false },
-      });
-      if (config.pagos_visible) await config.update({ pagos_visible: false });
+      await ConfigPagosCiclo.upsert({ ciclo_id: ciclo.id, pagos_visible: visible });
     }
-    res.json({ ok: true, ciclos_afectados: ciclos.length });
+    res.json({ ok: true, ciclos_afectados: ciclos.length, pagos_visible: visible });
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
