@@ -17,6 +17,7 @@ require('dotenv').config();
 const sequelize        = require('./src/config/database');
 const Ciclo            = require('./src/models/ciclo');
 const ConceptoPago     = require('./src/models/concepto_pago');
+const Pago             = require('./src/models/pago');
 const ConfigPagosCiclo = require('./src/models/config_pagos_ciclo');
 
 // Vencimiento: día 15 del mes correspondiente (mesOffset=0 → marzo 2026)
@@ -29,30 +30,35 @@ function fechaVencimiento(mesOffset) {
 }
 
 // Definición de ciclos a procesar
+// montoEscolaridad: null = no se crea concepto de escolaridad para ese ciclo
 const CICLOS_CONFIG = [
   {
     nombre:             'Anual Escolar',
     cuotas:             9,
-    montoMensualidad:   400.00,
     montoMatricula:     100.00,
+    montoMensualidad:   400.00,
+    montoEscolaridad:   null,   // ← poner monto si aplica, ej: 150.00
   },
   {
     nombre:             'Anual San Marcos',
     cuotas:             9,
-    montoMensualidad:   370.00,
     montoMatricula:     100.00,
+    montoMensualidad:   370.00,
+    montoEscolaridad:   null,
   },
   {
     nombre:             'Anual Uni',
     cuotas:             6,
-    montoMensualidad:   370.00,
     montoMatricula:     100.00,
+    montoMensualidad:   370.00,
+    montoEscolaridad:   null,
   },
   {
     nombre:             'Semestral San Marcos',
     cuotas:             6,
-    montoMensualidad:   370.00,
     montoMatricula:     100.00,
+    montoMensualidad:   370.00,
+    montoEscolaridad:   null,
   },
 ];
 
@@ -82,10 +88,18 @@ async function run() {
     }
     console.log(`  Ciclo ID: ${ciclo.id}`);
 
-    // ── Eliminar conceptos existentes ─────────────────────────
-    const eliminados = await ConceptoPago.destroy({ where: { ciclo_id: ciclo.id } });
-    if (eliminados > 0) {
-      console.log(`  🗑️  ${eliminados} concepto(s) eliminado(s).`);
+    // ── Eliminar pagos y conceptos existentes ─────────────────
+    const conceptosExistentes = await ConceptoPago.findAll({
+      where: { ciclo_id: ciclo.id },
+      attributes: ['id'],
+    });
+    const ids = conceptosExistentes.map(c => c.id);
+    if (ids.length > 0) {
+      const pagosEliminados = await Pago.destroy({ where: { concepto_id: ids } });
+      const conceptosEliminados = await ConceptoPago.destroy({ where: { ciclo_id: ciclo.id } });
+      console.log(`  🗑️  ${conceptosEliminados} concepto(s) y ${pagosEliminados} pago(s) eliminados.`);
+    } else {
+      console.log(`  ℹ️  Sin conceptos previos.`);
     }
 
     // ── Crear matrícula ────────────────────────────────────────
@@ -100,12 +114,28 @@ async function run() {
       orden:               0,
       permite_pago_online: false,
     });
-    console.log(`  ✔ Matrícula creada  (S/ ${cfg.montoMatricula})  vence 2026-03-15`);
+    console.log(`  ✔ Matrícula  S/ ${cfg.montoMatricula}  vence 2026-03-15`);
+
+    // ── Crear escolaridad (si aplica) ──────────────────────────
+    if (cfg.montoEscolaridad) {
+      await ConceptoPago.create({
+        ciclo_id:            ciclo.id,
+        tipo:                'escolaridad',
+        descripcion:         `Escolaridad ${cfg.nombre} 2026`,
+        numero_cuota:        null,
+        monto_opcion_1:      cfg.montoEscolaridad,
+        etiqueta_opcion_1:   'Regular',
+        fecha_vencimiento:   '2026-03-15',
+        orden:               1,
+        permite_pago_online: false,
+      });
+      console.log(`  ✔ Escolaridad  S/ ${cfg.montoEscolaridad}  vence 2026-03-15`);
+    }
 
     // ── Crear cuotas ───────────────────────────────────────────
     for (let i = 0; i < cfg.cuotas; i++) {
       const numeroCuota = i + 1;
-      const vence       = fechaVencimiento(i); // i=0 → 2026-03-15, i=1 → 2026-04-15 …
+      const vence       = fechaVencimiento(i);
       await ConceptoPago.create({
         ciclo_id:            ciclo.id,
         tipo:                'mensualidad',
@@ -114,7 +144,7 @@ async function run() {
         monto_opcion_1:      cfg.montoMensualidad,
         etiqueta_opcion_1:   'Regular',
         fecha_vencimiento:   vence,
-        orden:               numeroCuota,
+        orden:               numeroCuota + 1,
         permite_pago_online: false,
       });
       console.log(`  ✔ Cuota ${numeroCuota}  vence ${vence}`);
