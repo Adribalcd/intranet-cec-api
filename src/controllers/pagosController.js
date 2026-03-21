@@ -120,37 +120,57 @@ exports.setVisibilidadGlobal = async (req, res) => {
 
 exports.getPagosAlumno = async (req, res) => {
   try {
-    const { alumnoId, cicloId } = req.params;
+    const alumnoId = parseInt(req.params.alumnoId);
+    const cicloId  = parseInt(req.params.cicloId);
+
     const conceptos = await ConceptoPago.findAll({
       where: { ciclo_id: cicloId },
-      include: [{
-        model: Pago, as: 'Pagos',
-        where: { alumno_id: alumnoId },
-        required: false,
-      }],
       order: [['orden', 'ASC'], ['id', 'ASC']],
     });
-    res.json(conceptos);
+
+    const ids = conceptos.map(c => c.id);
+    const pagos = ids.length
+      ? await Pago.findAll({ where: { concepto_id: ids, alumno_id: alumnoId } })
+      : [];
+
+    const pagoMap = {};
+    pagos.forEach(p => { pagoMap[p.concepto_id] = p.toJSON(); });
+
+    const result = conceptos.map(c => ({
+      ...c.toJSON(),
+      Pagos: pagoMap[c.id] ? [pagoMap[c.id]] : [],
+    }));
+
+    res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
 exports.getPagosEscolaridadAlumno = async (req, res) => {
   try {
-    const { alumnoId } = req.params;
+    const alumnoId = parseInt(req.params.alumnoId);
     const hoy = new Date();
     const escData = await getItemsEscolaridad(alumnoId, hoy);
     if (!escData) return res.json([]);
-    // Devolver en el mismo formato que getPagosAlumno (lista de ConceptoPago con Pagos[])
+
     const conceptos = await ConceptoPago.findAll({
       where: { ciclo_id: escData.cicloId },
-      include: [{
-        model: Pago, as: 'Pagos',
-        where: { alumno_id: alumnoId },
-        required: false,
-      }],
       order: [['orden', 'ASC'], ['id', 'ASC']],
     });
-    res.json(conceptos);
+
+    const ids = conceptos.map(c => c.id);
+    const pagos = ids.length
+      ? await Pago.findAll({ where: { concepto_id: ids, alumno_id: alumnoId } })
+      : [];
+
+    const pagoMap = {};
+    pagos.forEach(p => { pagoMap[p.concepto_id] = p.toJSON(); });
+
+    const result = conceptos.map(c => ({
+      ...c.toJSON(),
+      Pagos: pagoMap[c.id] ? [pagoMap[c.id]] : [],
+    }));
+
+    res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
