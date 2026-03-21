@@ -63,6 +63,21 @@ exports.upsertConfigPagos = async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
+exports.ocultarPagosTodos = async (req, res) => {
+  try {
+    const { Ciclo } = require('../models');
+    const ciclos = await Ciclo.findAll({ attributes: ['id'] });
+    for (const ciclo of ciclos) {
+      const [config] = await ConfigPagosCiclo.findOrCreate({
+        where: { ciclo_id: ciclo.id },
+        defaults: { ciclo_id: ciclo.id, pagos_visible: false },
+      });
+      if (config.pagos_visible) await config.update({ pagos_visible: false });
+    }
+    res.json({ ok: true, ciclos_afectados: ciclos.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
 // ── Pagos por alumno (admin) ───────────────────────────────────
 
 exports.getPagosAlumno = async (req, res) => {
