@@ -65,7 +65,9 @@ router.post('/alumno/:codigo/restaurar-password',    auth('admin'), adminCtrl.re
 // Editar datos del alumno
 router.put( '/alumno/:codigo/datos',                 auth('admin'), adminCtrl.editarDatosAlumno);
 // Reenviar credenciales al correo del alumno
-router.post('/alumno/:codigo/reenviar-credenciales', auth('admin'), adminCtrl.reenviarCredenciales);
+router.post('/alumno/:codigo/reenviar-credenciales',  auth('admin'), adminCtrl.reenviarCredenciales);
+// Obtener credenciales para enviar por WhatsApp
+router.post('/alumno/:codigo/credenciales-whatsapp',  auth('admin'), adminCtrl.credencialesWhatsapp);
 
 // Subir foto de alumno
 router.post('/alumno/:codigo/foto', auth('admin'), adminCtrl.uploadFotoMiddleware, adminCtrl.subirFotoAlumno);

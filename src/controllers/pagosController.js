@@ -458,29 +458,30 @@ exports.getPagosAlumnoPublico = async (req, res) => {
     if (alumno && alumno.es_escolar) {
       const escData = await getItemsEscolaridad(alumnoId, hoy);
       if (escData && escData.items.length > 0) {
-        // Buscar config del ciclo escolaridad para las cuentas bancarias
+        // Buscar config del ciclo escolaridad para las cuentas bancarias y visibilidad
         const configEsc = await ConfigPagosCiclo.findOne({ where: { ciclo_id: escData.cicloId } });
-        const safeConfigEsc = configEsc ? {
-          permitePagarOnline: false,
-          permite_transferencia: false,
-          permite_yape_plin: false,
-          bcp_cuenta: configEsc.bcp_cuenta,
-          bcp_cci: configEsc.bcp_cci,
-          bbva_cuenta: configEsc.bbva_cuenta,
-          bbva_cci: configEsc.bbva_cci,
-          interbank_cuenta: configEsc.interbank_cuenta,
-          interbank_cci: configEsc.interbank_cci,
-          yape_numero: configEsc.yape_numero,
-          plin_numero: configEsc.plin_numero,
-          whatsapp_numero: configEsc.whatsapp_numero || null,
-        } : (result[0]?.config || {});
-
-        result.push({
-          ciclo: { id: escData.cicloId, nombres: NOMBRE_CICLO_ESCOLARIDAD },
-          config: safeConfigEsc,
-          items: escData.items,
-          esEscolaridad: true,
-        });
+        if (configEsc && configEsc.pagos_visible) {
+          const safeConfigEsc = {
+            permitePagarOnline: false,
+            permite_transferencia: false,
+            permite_yape_plin: false,
+            bcp_cuenta: configEsc.bcp_cuenta,
+            bcp_cci: configEsc.bcp_cci,
+            bbva_cuenta: configEsc.bbva_cuenta,
+            bbva_cci: configEsc.bbva_cci,
+            interbank_cuenta: configEsc.interbank_cuenta,
+            interbank_cci: configEsc.interbank_cci,
+            yape_numero: configEsc.yape_numero,
+            plin_numero: configEsc.plin_numero,
+            whatsapp_numero: configEsc.whatsapp_numero || null,
+          };
+          result.push({
+            ciclo: { id: escData.cicloId, nombres: NOMBRE_CICLO_ESCOLARIDAD },
+            config: safeConfigEsc,
+            items: escData.items,
+            esEscolaridad: true,
+          });
+        }
       }
     }
 

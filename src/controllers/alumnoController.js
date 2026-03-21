@@ -346,6 +346,30 @@ exports.resetPassword = async (req, res) => {
   }
 };
 
+// PUT /api/alumno/cambiar-password
+exports.cambiarPassword = async (req, res) => {
+  try {
+    const { contrasenaActual, nuevaContrasena } = req.body;
+    if (!contrasenaActual || !nuevaContrasena) {
+      return res.status(400).json({ error: 'Faltan campos requeridos.' });
+    }
+    if (nuevaContrasena.length < 6) {
+      return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+    }
+    const alumno = await Alumno.findByPk(req.usuario.id);
+    const ok = await bcrypt.compare(contrasenaActual, alumno.contrasena);
+    if (!ok) {
+      return res.status(400).json({ error: 'La contraseña actual es incorrecta.' });
+    }
+    const hash = await bcrypt.hash(nuevaContrasena, 10);
+    await alumno.update({ contrasena: hash });
+    res.json({ ok: true, mensaje: 'Contraseña actualizada correctamente.' });
+  } catch (error) {
+    console.error('[cambiarPassword] ERROR:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // GET /api/alumno/calificaciones-simulacro
 // Devuelve todas las notas del alumno que tienen detalle por curso (simulacros OMR)
 exports.calificacionesSimulacro = async (req, res) => {

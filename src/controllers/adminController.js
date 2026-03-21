@@ -13,6 +13,9 @@ const { sendCredentials, sendWelcomeCiclo } = require('../utils/emailService');
 const axios = require('axios');
 const { Op } = require('sequelize');
 
+const emailValido = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+
+
 // Carpeta de Drive donde se guardan las fotos de alumnos
 const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '12RAhO7i3rW3LbXFzbdh43CGk_BjEDKGi';
 
@@ -334,6 +337,9 @@ exports.registrarAlumno = async (req, res) => {
     if (!codigo || !nombres || !apellidos) {
       return res.status(400).json({ error: 'Se requiere codigo, nombres y apellidos' });
     }
+    if (email && !emailValido(email)) {
+      return res.status(400).json({ error: `El correo "${email}" no tiene un formato válido.` });
+    }
 
     const anio = fechaNacimiento ? fechaNacimiento.split('-')[0] : new Date().getFullYear();
     const contrasenaPlana = (fechaNacimiento && celular && dni)
@@ -437,7 +443,12 @@ exports.editarDatosAlumno = async (req, res) => {
     const updates = {};
     if (nombres        !== undefined) updates.nombres         = nombres.trim();
     if (apellidos      !== undefined) updates.apellidos        = apellidos.trim();
-    if (email          !== undefined) updates.email_alumno     = email.trim();
+    if (email !== undefined) {
+      if (email.trim() && !emailValido(email.trim())) {
+        return res.status(400).json({ error: `El correo "${email}" no tiene un formato válido.` });
+      }
+      updates.email_alumno = email.trim();
+    }
     if (celular        !== undefined) updates.celular          = celular.trim() || null;
     if (dni            !== undefined) updates.dni              = dni.trim() || null;
     if (fechaNacimiento !== undefined) updates.fecha_nacimiento = fechaNacimiento || null;
@@ -475,6 +486,42 @@ exports.reenviarCredenciales = async (req, res) => {
 
     sendCredentials(alumno.email_alumno, alumno.nombres, alumno.codigo, nuevaPassword).catch(() => {});
     res.json({ ok: true, mensaje: `Credenciales enviadas a ${alumno.email_alumno}` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ===================== CREDENCIALES POR WHATSAPP =====================
+
+exports.credencialesWhatsapp = async (req, res) => {
+  try {
+    const { codigo } = req.params;
+    const alumno = await Alumno.findOne({ where: { codigo } });
+    if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+
+    // Generar contraseña temporal y guardarla
+    const nuevaPassword = alumno.dni
+      ? `${alumno.codigo}-${alumno.dni.slice(-4)}`
+      : alumno.codigo;
+    const hash = await bcrypt.hash(nuevaPassword, 10);
+    await alumno.update({ contrasena: hash });
+
+    // Armar mensaje
+    const nombre = `${alumno.nombres} ${alumno.apellidos}`;
+    const mensaje =
+      `Hola ${alumno.nombres}, te enviamos tus credenciales de acceso al Portal CEC:\n\n` +
+      `👤 Usuario: ${alumno.codigo}\n` +
+      `🔑 Contraseña: ${nuevaPassword}\n\n` +
+      `Ingresa en: https://portal.cec.edu.pe`;
+
+    // Teléfono: limpiar caracteres no numéricos y añadir prefijo Perú si es necesario
+    let telefono = null;
+    if (alumno.celular) {
+      const digits = alumno.celular.replace(/\D/g, '');
+      telefono = digits.startsWith('51') ? digits : `51${digits}`;
+    }
+
+    res.json({ ok: true, mensaje, telefono, nombre });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1582,8 +1629,11 @@ exports.matriculaMasivaExcel = async (req, res) => {
           const passwordRaw = `${anioBirth}-${celular || dni}-${dni}`;
           const hash = await bcrypt.hash(passwordRaw, 10);
 
-          // Usar el email tal cual; si no viene, generar uno. La DB rechazará duplicados.
-          const emailFinal = email || `${dni}@cec.edu.pe`;
+          // Validar email; si no viene o es inválido, usar el generado
+          if (email && !emailValido(email)) {
+            errores.push(`Fila ${rowNum}: El correo "${email}" no tiene un formato válido. Se usará ${dni}@cec.edu.pe`);
+          }
+          const emailFinal = (email && emailValido(email)) ? email : `${dni}@cec.edu.pe`;
 
           alumno = await Alumno.create({
             codigo:       dni,

@@ -20,6 +20,7 @@ router.get('/examenes/:examenId/ranking', auth('alumno'), alumnoCtrl.rankingSalo
 router.get('/cursos', auth('alumno'), alumnoCtrl.cursos);
 router.get('/cursos/:idCurso/materiales', auth('alumno'), alumnoCtrl.materiales);
 router.post('/logout', auth('alumno'), alumnoCtrl.logout);
+router.put('/cambiar-password', auth('alumno'), alumnoCtrl.cambiarPassword);
 router.get('/pagos', auth('alumno'), pagosCtrl.getPagosAlumnoPublico);
 router.post('/pago-online', auth('alumno'), pagosCtrl.pagoOnline);
 
