@@ -1,9 +1,10 @@
 /**
  * limpiar-escolaridad-duplicados.js
  *
- * Elimina conceptos de pago duplicados del ciclo "Escolaridad 2026".
- * Conserva siempre el concepto que tenga pagos registrados.
- * Si ninguno tiene pagos, conserva el de menor ID.
+ * Busca TODOS los conceptos con tipo='escolaridad' en CUALQUIER ciclo,
+ * agrupa por (ciclo_id + numero_cuota) y elimina duplicados.
+ * Conserva el que tenga pagos; si ninguno tiene, conserva el de menor ID.
+ * Los pagos del duplicado eliminado se reasignan al que se conserva.
  *
  * Uso: node limpiar-escolaridad-duplicados.js
  */
@@ -14,49 +15,58 @@ const Ciclo        = require('./src/models/ciclo');
 const ConceptoPago = require('./src/models/concepto_pago');
 const Pago         = require('./src/models/pago');
 
-const NOMBRE_CICLO = 'Escolaridad 2026';
-
 async function run() {
   await sequelize.authenticate();
   console.log('✅ DB conectada\n');
 
-  const ciclo = await Ciclo.findOne({ where: { nombres: NOMBRE_CICLO } });
-  if (!ciclo) { console.log('⚠️  Ciclo no encontrado.'); return; }
-  console.log(`Ciclo ID: ${ciclo.id}\n`);
-
+  // Buscar TODOS los conceptos de tipo escolaridad, en cualquier ciclo
   const conceptos = await ConceptoPago.findAll({
-    where: { ciclo_id: ciclo.id },
-    order: [['numero_cuota', 'ASC'], ['id', 'ASC']],
+    where: { tipo: 'escolaridad' },
+    order: [['ciclo_id', 'ASC'], ['numero_cuota', 'ASC'], ['id', 'ASC']],
   });
-  console.log(`Total conceptos encontrados: ${conceptos.length}`);
 
-  // Agrupar por numero_cuota
+  console.log(`Total conceptos tipo "escolaridad" encontrados: ${conceptos.length}`);
+
+  if (conceptos.length === 0) {
+    console.log('No hay conceptos de escolaridad en la BD.');
+    await sequelize.close();
+    return;
+  }
+
+  // Mostrar distribución por ciclo
+  const porCiclo = {};
+  for (const c of conceptos) {
+    if (!porCiclo[c.ciclo_id]) porCiclo[c.ciclo_id] = [];
+    porCiclo[c.ciclo_id].push(c);
+  }
+  for (const [cicloId, items] of Object.entries(porCiclo)) {
+    console.log(`  Ciclo ID ${cicloId}: ${items.length} conceptos`);
+  }
+
+  // Agrupar por ciclo_id + numero_cuota para detectar duplicados
   const grupos = {};
   for (const c of conceptos) {
-    const key = c.numero_cuota ?? `sin_cuota_${c.id}`;
+    const key = `${c.ciclo_id}_${c.numero_cuota ?? 'null'}_${c.descripcion}`;
     if (!grupos[key]) grupos[key] = [];
     grupos[key].push(c);
   }
 
+  const ids = conceptos.map(c => c.id);
+  const pagos = await Pago.findAll({ where: { concepto_id: ids } });
+  const conceptosConPago = new Set(pagos.map(p => p.concepto_id));
+
   let eliminados = 0;
-  for (const [cuota, grupo] of Object.entries(grupos)) {
+  for (const [key, grupo] of Object.entries(grupos)) {
     if (grupo.length <= 1) continue;
 
-    console.log(`\nCuota ${cuota}: ${grupo.length} duplicados`);
+    console.log(`\nDuplicado "${grupo[0].descripcion}" (ciclo_id=${grupo[0].ciclo_id}): ${grupo.length} registros`);
 
-    // Ver cuál tiene pagos
-    const ids = grupo.map(c => c.id);
-    const pagos = await Pago.findAll({ where: { concepto_id: ids } });
-    const conceptosConPago = new Set(pagos.map(p => p.concepto_id));
+    const conservar = grupo.find(c => conceptosConPago.has(c.id)) || grupo[0];
+    const eliminar  = grupo.filter(c => c.id !== conservar.id);
 
-    // Elegir el que conservar: el que tiene pagos (o si ninguno tiene, el de menor ID)
-    let conservar = grupo.find(c => conceptosConPago.has(c.id)) || grupo[0];
-    const eliminar = grupo.filter(c => c.id !== conservar.id);
-
-    console.log(`  → Conservando ID ${conservar.id} (${conceptosConPago.has(conservar.id) ? 'tiene pagos' : 'sin pagos'})`);
+    console.log(`  → Conservando ID ${conservar.id}`);
 
     for (const c of eliminar) {
-      // Reasignar pagos al concepto conservado antes de eliminar
       const pagosDelEliminado = pagos.filter(p => p.concepto_id === c.id);
       if (pagosDelEliminado.length > 0) {
         await Pago.update({ concepto_id: conservar.id }, { where: { concepto_id: c.id } });
