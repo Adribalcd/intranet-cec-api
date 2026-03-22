@@ -509,10 +509,14 @@ exports.credencialesWhatsapp = async (req, res) => {
     // Armar mensaje
     const nombre = `${alumno.nombres} ${alumno.apellidos}`;
     const mensaje =
-      `Hola ${alumno.nombres}, te enviamos tus credenciales de acceso al Portal CEC:\n\n` +
-      `👤 Usuario: ${alumno.codigo}\n` +
-      `🔑 Contraseña: ${nuevaPassword}\n\n` +
-      `Ingresa en: https://portal.cec.edu.pe`;
+      `¡Bienvenido/a al Portal de la Academia CEC, ${alumno.nombres}! 🎓\n\n` +
+      `Aquí tienes tus credenciales de acceso:\n\n` +
+      `👤 *Usuario:* ${alumno.codigo}\n` +
+      `🔑 *Contraseña:* ${nuevaPassword}\n\n` +
+      `🌐 *Ingresa aquí:*\n` +
+      `https://intranet.cecamargo.cloud/\n\n` +
+      `En el portal podrás revisar tus horarios, asistencias, calificaciones y estado de pagos.\n\n` +
+      `_Si tienes algún problema para ingresar, comunícate con nosotros._`;
 
     // Teléfono: limpiar caracteres no numéricos y añadir prefijo Perú si es necesario
     let telefono = null;
