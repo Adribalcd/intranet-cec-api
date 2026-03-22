@@ -1,10 +1,9 @@
 /**
  * limpiar-escolaridad-duplicados.js
  *
- * Busca TODOS los conceptos con tipo='escolaridad' en CUALQUIER ciclo,
- * agrupa por (ciclo_id + numero_cuota) y elimina duplicados.
- * Conserva el que tenga pagos; si ninguno tiene, conserva el de menor ID.
- * Los pagos del duplicado eliminado se reasignan al que se conserva.
+ * Elimina todos los conceptos tipo='escolaridad' que estén en ciclos
+ * que NO son "Escolaridad 2026". Los pagos asociados también se eliminan.
+ * Luego deduplica los conceptos de escolaridad dentro del ciclo correcto.
  *
  * Uso: node limpiar-escolaridad-duplicados.js
  */
@@ -15,70 +14,79 @@ const Ciclo        = require('./src/models/ciclo');
 const ConceptoPago = require('./src/models/concepto_pago');
 const Pago         = require('./src/models/pago');
 
+const NOMBRE_CICLO_ESC = 'Escolaridad 2026';
+
 async function run() {
   await sequelize.authenticate();
   console.log('✅ DB conectada\n');
 
-  // Buscar TODOS los conceptos de tipo escolaridad, en cualquier ciclo
-  const conceptos = await ConceptoPago.findAll({
-    where: { tipo: 'escolaridad' },
-    order: [['ciclo_id', 'ASC'], ['numero_cuota', 'ASC'], ['id', 'ASC']],
+  // Buscar el ciclo correcto de escolaridad
+  const cicloEsc = await Ciclo.findOne({ where: { nombres: NOMBRE_CICLO_ESC } });
+  console.log(cicloEsc
+    ? `Ciclo "${NOMBRE_CICLO_ESC}" encontrado (ID: ${cicloEsc.id})`
+    : `⚠️  Ciclo "${NOMBRE_CICLO_ESC}" NO existe aún en la BD`
+  );
+
+  // ── 1. Eliminar conceptos escolaridad en ciclos INCORRECTOS ──────────────
+  const mal = await ConceptoPago.findAll({
+    where: {
+      tipo: 'escolaridad',
+      ...(cicloEsc ? { ciclo_id: { [require('sequelize').Op.ne]: cicloEsc.id } } : {}),
+    },
   });
 
-  console.log(`Total conceptos tipo "escolaridad" encontrados: ${conceptos.length}`);
+  if (mal.length > 0) {
+    console.log(`\nConceptos escolaridad en ciclos incorrectos: ${mal.length}`);
+    const idsMal = mal.map(c => c.id);
+    const pagosEliminados = await Pago.destroy({ where: { concepto_id: idsMal } });
+    const conceptosEliminados = await ConceptoPago.destroy({ where: { id: idsMal } });
+    console.log(`  → ${conceptosEliminados} concepto(s) eliminados, ${pagosEliminados} pago(s) eliminados`);
+  } else {
+    console.log('\nNo hay conceptos escolaridad en ciclos incorrectos. ✓');
+  }
 
-  if (conceptos.length === 0) {
-    console.log('No hay conceptos de escolaridad en la BD.');
+  // ── 2. Deduplicar los del ciclo correcto ────────────────────────────────
+  if (!cicloEsc) {
+    console.log('\nNo existe el ciclo correcto, nada más que hacer.');
+    console.log('Ejecuta "node generar-escolaridad.js" para crearlo.\n');
     await sequelize.close();
     return;
   }
 
-  // Mostrar distribución por ciclo
-  const porCiclo = {};
-  for (const c of conceptos) {
-    if (!porCiclo[c.ciclo_id]) porCiclo[c.ciclo_id] = [];
-    porCiclo[c.ciclo_id].push(c);
-  }
-  for (const [cicloId, items] of Object.entries(porCiclo)) {
-    console.log(`  Ciclo ID ${cicloId}: ${items.length} conceptos`);
-  }
+  const conceptos = await ConceptoPago.findAll({
+    where: { ciclo_id: cicloEsc.id },
+    order: [['numero_cuota', 'ASC'], ['id', 'ASC']],
+  });
+  console.log(`\nConceptos en "${NOMBRE_CICLO_ESC}": ${conceptos.length}`);
 
-  // Agrupar por ciclo_id + numero_cuota para detectar duplicados
   const grupos = {};
   for (const c of conceptos) {
-    const key = `${c.ciclo_id}_${c.numero_cuota ?? 'null'}_${c.descripcion}`;
+    const key = c.numero_cuota ?? c.descripcion;
     if (!grupos[key]) grupos[key] = [];
     grupos[key].push(c);
   }
 
   const ids = conceptos.map(c => c.id);
-  const pagos = await Pago.findAll({ where: { concepto_id: ids } });
-  const conceptosConPago = new Set(pagos.map(p => p.concepto_id));
+  const pagos = ids.length ? await Pago.findAll({ where: { concepto_id: ids } }) : [];
+  const conPago = new Set(pagos.map(p => p.concepto_id));
 
   let eliminados = 0;
-  for (const [key, grupo] of Object.entries(grupos)) {
+  for (const grupo of Object.values(grupos)) {
     if (grupo.length <= 1) continue;
-
-    console.log(`\nDuplicado "${grupo[0].descripcion}" (ciclo_id=${grupo[0].ciclo_id}): ${grupo.length} registros`);
-
-    const conservar = grupo.find(c => conceptosConPago.has(c.id)) || grupo[0];
+    const conservar = grupo.find(c => conPago.has(c.id)) || grupo[0];
     const eliminar  = grupo.filter(c => c.id !== conservar.id);
-
-    console.log(`  → Conservando ID ${conservar.id}`);
-
+    console.log(`  Cuota duplicada: conservando ID ${conservar.id}, eliminando ${eliminar.map(c => c.id).join(', ')}`);
     for (const c of eliminar) {
-      const pagosDelEliminado = pagos.filter(p => p.concepto_id === c.id);
-      if (pagosDelEliminado.length > 0) {
-        await Pago.update({ concepto_id: conservar.id }, { where: { concepto_id: c.id } });
-        console.log(`  → ${pagosDelEliminado.length} pago(s) reasignados de ID ${c.id} → ID ${conservar.id}`);
-      }
+      const pp = pagos.filter(p => p.concepto_id === c.id);
+      if (pp.length) await Pago.update({ concepto_id: conservar.id }, { where: { concepto_id: c.id } });
       await c.destroy();
-      console.log(`  → Eliminado ID ${c.id}`);
       eliminados++;
     }
   }
 
-  console.log(`\n🎉 Listo. ${eliminados} concepto(s) duplicado(s) eliminados.\n`);
+  if (eliminados === 0) console.log('  Sin duplicados en el ciclo correcto. ✓');
+
+  console.log('\n🎉 Listo.\n');
   await sequelize.close();
 }
 
