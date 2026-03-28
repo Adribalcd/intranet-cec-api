@@ -8,7 +8,7 @@ const ExcelJS = require('exceljs');
 const { google } = require('googleapis');
 const { sequelize, Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, NotaCurso, Material, ConceptoPago, PlantillaExamen, PlantillaSeccion, PlantillaCurso } = require('../models');
 const { parsearExcelSimulacro, CURSOS_SIMULACRO } = require('../utils/parsearExcelSimulacro');
-const { parsearExcelResultados } = require('../utils/parsearExcelResultados');
+const { parsearExcelResultados, buscarNotasPorAlumnos } = require('../utils/parsearExcelResultados');
 const { generarToken } = require('../utils/tokenUtils');
 const { sendCredentials, sendWelcomeCiclo } = require('../utils/emailService');
 const axios = require('axios');
@@ -2666,6 +2666,133 @@ exports.subirExcelResultados = async (req, res) => {
     return res.json({ ok: true, resumen });
   } catch (error) {
     console.error('[subirExcelResultados]', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PASO 1: previsualizar notas desde Excel (NO guarda, devuelve lista al frontend)
+// POST /api/admin/examen/:examenId/preview-excel-resultados
+// ─────────────────────────────────────────────────────────────────────────────
+exports.previewExcelResultados = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió archivo Excel.' });
+
+    const examenId = parseInt(req.params.examenId, 10);
+    const examen = await Examen.findByPk(examenId);
+    if (!examen) return res.status(404).json({ error: 'Examen no encontrado.' });
+
+    // Obtener alumnos matriculados en el ciclo del examen
+    const matriculas = await Matricula.findAll({
+      where: { ciclo_id: examen.ciclo_id },
+      include: [{ model: Alumno, attributes: ['id', 'codigo', 'dni', 'nombres', 'apellidos'] }],
+    });
+    if (matriculas.length === 0) {
+      return res.status(422).json({ error: 'No hay alumnos matriculados en el ciclo de este examen.' });
+    }
+
+    const alumnosParaBuscar = matriculas
+      .filter(m => m.Alumno)
+      .map(m => ({
+        id:        m.Alumno.id,
+        codigo:    m.Alumno.codigo   || '',
+        dni:       m.Alumno.dni      || '',
+        nombres:   m.Alumno.nombres  || '',
+        apellidos: m.Alumno.apellidos || '',
+      }));
+
+    let preview;
+    try {
+      preview = await buscarNotasPorAlumnos(req.file.buffer, alumnosParaBuscar);
+    } catch (parseErr) {
+      return res.status(422).json({ error: `Error al leer el Excel: ${parseErr.message}` });
+    }
+
+    const encontrados = preview.filter(p => p.encontradoEnExcel).length;
+    return res.json({ ok: true, encontrados, total: preview.length, preview });
+  } catch (error) {
+    console.error('[previewExcelResultados]', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PASO 2: confirmar y guardar notas (recibe JSON con la lista previsualizada)
+// POST /api/admin/examen/:examenId/confirmar-excel-resultados
+// Body: { notas: [{ alumnoId, global: { aciertos, fallos, blanco, puntaje }, cursos: [{curso, aciertos, fallos}] }] }
+// ─────────────────────────────────────────────────────────────────────────────
+exports.confirmarExcelResultados = async (req, res) => {
+  try {
+    const examenId = parseInt(req.params.examenId, 10);
+    const examen = await Examen.findByPk(examenId);
+    if (!examen) return res.status(404).json({ error: 'Examen no encontrado.' });
+
+    const { notas } = req.body;
+    if (!Array.isArray(notas) || notas.length === 0) {
+      return res.status(400).json({ error: 'No se recibieron notas para guardar.' });
+    }
+
+    const resumen = { procesados: 0, errores: [] };
+
+    for (const item of notas) {
+      try {
+        const alumnoId = parseInt(item.alumnoId, 10);
+        const global   = item.global   || {};
+        const cursos   = item.cursos   || [];
+
+        const [nota, created] = await Nota.findOrCreate({
+          where: { examen_id: examenId, alumno_id: alumnoId },
+          defaults: {
+            valor:  global.puntaje  ?? 0,
+            buenas: global.aciertos ?? null,
+            malas:  global.fallos   ?? null,
+            nc:     global.blanco   ?? null,
+            puesto: 0,
+          },
+        });
+
+        if (!created) {
+          await nota.update({
+            valor:  global.puntaje  ?? nota.valor,
+            buenas: global.aciertos ?? nota.buenas,
+            malas:  global.fallos   ?? nota.malas,
+            nc:     global.blanco   ?? nota.nc,
+          });
+        }
+
+        // Reemplazar detalle por curso
+        await NotaCurso.destroy({ where: { nota_id: nota.id } });
+        if (cursos.length > 0) {
+          await NotaCurso.bulkCreate(cursos.map(c => ({
+            nota_id:      nota.id,
+            curso_nombre: c.curso,
+            buenas:       c.aciertos ?? 0,
+            malas:        c.fallos   ?? 0,
+            nc:           c.blanco   ?? 0,
+            puntaje:      c.puntaje  ?? null,
+          })));
+        }
+
+        resumen.procesados++;
+      } catch (rowErr) {
+        resumen.errores.push({ alumnoId: item.alumnoId, error: rowErr.message });
+      }
+    }
+
+    // Recalcular puestos
+    try {
+      const todasNotas = await Nota.findAll({
+        where: { examen_id: examenId },
+        order: [['valor', 'DESC']],
+      });
+      for (let i = 0; i < todasNotas.length; i++) {
+        await todasNotas[i].update({ puesto: i + 1 });
+      }
+    } catch (_) {}
+
+    return res.json({ ok: true, resumen });
+  } catch (error) {
+    console.error('[confirmarExcelResultados]', error.message);
     res.status(500).json({ error: error.message });
   }
 };

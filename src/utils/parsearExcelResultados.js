@@ -3,33 +3,17 @@
 /**
  * parsearExcelResultados.js
  *
- * Lee un Excel de resultados de simulacro/examen con:
- *   - Hoja "ESTADÍSTICA INDIVIDUAL": bloques verticales por alumno (un bloque = un alumno)
- *     Cada bloque: DNI | <valor>, APELLIDOS Y NOMBRES | <valor>, ..., tabla de cursos, fila GLOBAL
- *   - Hoja "RESULTADOS" (opcional): tabla horizontal con una fila por alumno
- *   - Hoja "ALUMNOS" (opcional): mapeo DNI → CODIGO
+ * Enfoque: pre-indexar todas las celdas de la hoja una sola vez,
+ * luego buscar cada DNI matriculado en ese índice en O(1).
  *
- * Devuelve: { mapaExcel: Map<dni_string, datos>, alumnos: Array }
- *   donde `mapaExcel` permite lookup O(1) por DNI desde el controlador.
+ * Exporta:
+ *   buscarNotasPorAlumnos(buffer, alumnos) → Array de resultados por alumno
+ *   parsearExcelResultados(buffer)         → compatibilidad legacy
  */
 
 const ExcelJS = require('exceljs');
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Versión segura: si colIdx es falsy devuelve null en vez de llamar getCell(0) */
-function safeStr(row, colIdx) {
-  if (!colIdx) return null;
-  return cellStr(row.getCell(colIdx));
-}
-function safeNum(row, colIdx) {
-  if (!colIdx) return null;
-  return cellNum(row.getCell(colIdx));
-}
-function safeInt(row, colIdx) {
-  if (!colIdx) return null;
-  return cellInt(row.getCell(colIdx));
-}
+// ── Helpers de celda ─────────────────────────────────────────────────────────
 
 function cellStr(cell) {
   if (!cell) return null;
@@ -41,6 +25,8 @@ function cellStr(cell) {
       const r = v.result;
       if (r === null || r === undefined) return null;
       if (typeof r === 'object' && r?.error) return null;
+      // Si el resultado es un número, asegurar conversión limpia
+      if (typeof r === 'number') return String(Math.round(r * 1e6) / 1e6).replace(/\.0+$/, '').trim() || null;
       return String(r).trim() || null;
     }
     if (Array.isArray(v.richText)) {
@@ -49,15 +35,28 @@ function cellStr(cell) {
     }
     return null;
   }
-  const s = String(v).trim();
-  return s || null;
+  if (typeof v === 'number') return String(v).trim() || null;
+  return String(v).trim() || null;
 }
 
 function cellNum(cell) {
-  const s = cellStr(cell);
-  if (!s) return null;
-  const clean = s.replace('%', '').replace(',', '.').trim();
-  const n = parseFloat(clean);
+  if (!cell) return null;
+  const v = cell.value;
+  if (v === null || v === undefined) return null;
+  // Manejar resultado de fórmula
+  if (typeof v === 'object') {
+    if (v.error) return null;
+    if ('result' in v) {
+      const r = v.result;
+      if (r === null || r === undefined) return null;
+      if (typeof r === 'object') return null;
+      const n = parseFloat(String(r).replace(',', '.'));
+      return isNaN(n) ? null : n;
+    }
+    return null;
+  }
+  if (typeof v === 'number') return v;
+  const n = parseFloat(String(v).replace(',', '.'));
   return isNaN(n) ? null : n;
 }
 
@@ -72,360 +71,318 @@ function normalizar(str) {
     .replace(/[ÁÀÂÄ]/g, 'A').replace(/[ÉÈÊË]/g, 'E')
     .replace(/[ÍÌÎÏ]/g, 'I').replace(/[ÓÒÔÖ]/g, 'O')
     .replace(/[ÚÙÛÜ]/g, 'U')
-    .replace(/[^A-Z0-9%\s]/g, ' ')
+    .replace(/[^A-Z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-/**
- * Primera celda no vacía en el rango [colDesde, colHasta]
- */
-function primerTexto(row, colDesde, colHasta) {
-  for (let c = colDesde; c <= colHasta; c++) {
-    const v = cellStr(row.getCell(c));
-    if (v) return { texto: v, col: c };
-  }
-  return null;
-}
-
-/**
- * Valor de la siguiente celda no vacía a partir de colDesde (inclusive), hasta +15
- */
-function siguienteValor(row, colDesde) {
-  for (let c = colDesde; c <= colDesde + 15; c++) {
-    const v = cellStr(row.getCell(c));
-    if (v) return v;
-  }
-  return null;
 }
 
 function findSheet(workbook, pattern) {
   return workbook.worksheets.find(ws => pattern.test(ws.name)) || null;
 }
 
-// ── Hoja ALUMNOS (opcional) ───────────────────────────────────────────────────
+// ── Detectar columnas de scores ───────────────────────────────────────────────
 
-function leerHojaAlumnos(sheet) {
-  const mapa = new Map();
-  if (!sheet) return mapa;
-
+function detectarColumnas(sheet) {
   let cols = null;
-  let filaDatos = null;
-
-  sheet.eachRow((row, rowNum) => {
-    if (cols) return;
-    const found = {};
-    row.eachCell((cell, colNum) => {
-      const v = normalizar(cellStr(cell) || '');
-      if (v === 'CODIGO' || v === 'COD')                    found.codigo = colNum;
-      if (v === 'DNI')                                       found.dni    = colNum;
-      if (v === 'APELLIDOS Y NOMBRES' || v === 'NOMBRES' ||
-          v === 'NOMBRE' || v === 'ALUMNO')                  found.nombre = colNum;
-      if (v === 'APELLIDOS' || v === 'APELLIDO')             found.apellido = colNum;
-      if (v === 'AREA' || v === 'AREA')                      found.area   = colNum;
-      if (v === 'CARRERA')                                   found.carrera = colNum;
-      if (v === 'CICLO')                                     found.ciclo  = colNum;
-      if (v === 'AULA')                                      found.aula   = colNum;
-    });
-    if (found.dni || found.codigo) { cols = found; filaDatos = rowNum + 1; }
-  });
-
-  if (!cols) return mapa;
-
-  sheet.eachRow((row, rowNum) => {
-    if (rowNum < filaDatos) return;
-    const codigo   = (safeStr(row, cols.codigo)   || '').trim();
-    const dni      = (safeStr(row, cols.dni)      || '').trim();
-    const nombre   = (safeStr(row, cols.nombre)   || '').trim();
-    const apellido = (safeStr(row, cols.apellido) || '').trim();
-    const area     = (safeStr(row, cols.area)     || '').trim();
-    const carrera  = (safeStr(row, cols.carrera)  || '').trim();
-    const ciclo    = (safeStr(row, cols.ciclo)    || '').trim();
-    const aula     = (safeStr(row, cols.aula)     || '').trim();
-    if (!dni && !codigo) return;
-    const nombreCompleto = apellido ? `${apellido} ${nombre}`.trim() : nombre;
-    const alumno = { codigo, nombre: nombreCompleto, area, carrera, ciclo, aula };
-    if (dni)    mapa.set(dni,    alumno);
-    if (codigo) mapa.set(codigo, alumno);
-  });
-
-  return mapa;
-}
-
-// ── Hoja ESTADÍSTICA INDIVIDUAL (bloques verticales) ─────────────────────────
-
-function leerHojaEstadistica(sheet) {
-  const alumnos = [];
-
-  // ── Paso 1: detectar columnas de la tabla de cursos ─────────────────────────
-  let colCursoNombre = null;
-  let colTotal = null, colAciertos = null, colFallos = null, colBlanco = null;
-  let colPuntaje = null, colPctAciertos = null, colPctFallos = null, colPctBlanco = null;
-
-  const PATRONES = {
-    total:       /^total$/i,
-    aciertos:    /^aciertos$/i,
-    fallos:      /^fallos$/i,
-    blanco:      /^blanco$/i,
-    puntaje:     /^puntaje$/i,
-    pctAciertos: /%.*aciertos|aciertos.*%/i,
-    pctFallos:   /%.*fallos|fallos.*%/i,
-    pctBlanco:   /%.*blanco|blanco.*%/i,
-  };
 
   sheet.eachRow((row, _rowNum) => {
-    if (colTotal) return;
+    if (cols) return;
     let count = 0;
     const temp = {};
     row.eachCell((cell, colNum) => {
-      const v = cellStr(cell) || '';
-      for (const [key, pat] of Object.entries(PATRONES)) {
-        if (pat.test(v)) { temp[key] = colNum; count++; }
-      }
-      if (/^cursos$/i.test(v)) temp.cursoNombre = colNum;
+      const v = normalizar(cellStr(cell) || '');
+      if (/^total$/i.test(v))            { temp.total = colNum; count++; }
+      if (/^aciertos$/i.test(v))         { temp.aciertos = colNum; count++; }
+      if (/^(fallos?|incorrectas?)$/i.test(v)) { temp.fallos = colNum; count++; }
+      if (/^(blanco|omitidas?)$/i.test(v))     { temp.blanco = colNum; }
+      if (/^puntaje$/i.test(v))          { temp.puntaje = colNum; count++; }
+      if (/^cursos$/i.test(v))           { temp.cursoNombre = colNum; }
+      if (/%.*aciertos|aciertos.*%/i.test(v)) { temp.pctAciertos = colNum; }
+      if (/%.*fallos|fallos.*%/i.test(v))     { temp.pctFallos = colNum; }
     });
-    if (count >= 3) {
-      colCursoNombre  = temp.cursoNombre  || null;
-      colTotal        = temp.total;
-      colAciertos     = temp.aciertos;
-      colFallos       = temp.fallos;
-      colBlanco       = temp.blanco;
-      colPuntaje      = temp.puntaje;
-      colPctAciertos  = temp.pctAciertos;
-      colPctFallos    = temp.pctFallos;
-      colPctBlanco    = temp.pctBlanco;
-    }
+    if (count >= 2) cols = temp;
   });
 
-  // Fallback: posiciones típicas (tabla empieza en col C/D)
-  if (!colTotal) {
-    colCursoNombre = 3; colTotal = 4; colAciertos = 5; colFallos = 6;
-    colBlanco = 7; colPuntaje = 8; colPctAciertos = 9; colPctFallos = 10; colPctBlanco = 11;
+  // Fallback a posiciones fijas si no se detectaron
+  if (!cols) {
+    cols = { cursoNombre: 3, total: 4, aciertos: 5, fallos: 6, blanco: 7, puntaje: 8 };
   }
-  if (!colCursoNombre) colCursoNombre = (colTotal || 4) - 1;
+  if (!cols.cursoNombre) cols.cursoNombre = Math.max(1, (cols.aciertos || 5) - 2);
 
-  function leerFilaCurso(row) {
-    return {
-      total:       cellInt(row.getCell(colTotal))       ?? 0,
-      aciertos:    cellInt(row.getCell(colAciertos))    ?? 0,
-      fallos:      cellInt(row.getCell(colFallos))      ?? 0,
-      blanco:      cellInt(row.getCell(colBlanco))      ?? 0,
-      puntaje:     cellNum(row.getCell(colPuntaje))     ?? 0,
-      '%aciertos': cellNum(row.getCell(colPctAciertos)) ?? 0,
-      '%fallos':   cellNum(row.getCell(colPctFallos))   ?? 0,
-      '%blanco':   cellNum(row.getCell(colPctBlanco))   ?? 0,
+  return cols;
+}
+
+function leerFilaScore(row, cols) {
+  const total    = cols.total    ? cellInt(row.getCell(cols.total))    ?? 0 : 0;
+  const aciertos = cols.aciertos ? cellInt(row.getCell(cols.aciertos)) ?? 0 : 0;
+  const fallos   = cols.fallos   ? cellInt(row.getCell(cols.fallos))   ?? 0 : 0;
+  const blanco   = cols.blanco   ? cellInt(row.getCell(cols.blanco))   ?? 0 : 0;
+  const puntaje  = cols.puntaje  ? cellNum(row.getCell(cols.puntaje))  ?? 0 : 0;
+  return { total, aciertos, fallos, blanco, puntaje };
+}
+
+// ── Pre-indexar todas las celdas de la hoja ───────────────────────────────────
+
+/**
+ * Construye un Map<valorString, [{rowNum, colNum}]> con TODAS las celdas
+ * que contengan un valor parecido a un DNI (>= 6 caracteres de dígitos).
+ * También indexa cadenas alfanuméricas >= 4 chars (para códigos).
+ */
+function preindexarCeldas(sheet) {
+  const idx = new Map();
+
+  sheet.eachRow((row, rowNum) => {
+    row.eachCell({ includeEmpty: false }, (cell, colNum) => {
+      const v = cellStr(cell);
+      if (!v) return;
+      const clean = v.replace(/\s/g, '');
+      if (clean.length < 4) return; // demasiado corto para ser DNI o código
+
+      const entries = new Set([clean]);
+      // también sin ceros iniciales
+      const sinCeros = clean.replace(/^0+/, '');
+      if (sinCeros && sinCeros !== clean) entries.add(sinCeros);
+
+      for (const key of entries) {
+        if (!idx.has(key)) idx.set(key, []);
+        idx.get(key).push({ rowNum, colNum });
+      }
+    });
+  });
+
+  return idx;
+}
+
+// ── Extraer datos de un bloque vertical dado el rowNum del DNI ────────────────
+
+function extraerBloqueDesdeRow(sheet, dniRowNum, cols) {
+  const cursos = [];
+  let global = null;
+  let leyendoCursos = false;
+  let filasCursosSeguidas = 0;
+
+  for (let rn = dniRowNum + 1; rn <= dniRowNum + 80; rn++) {
+    const row = sheet.getRow(rn);
+    let primeraNoVacia = null;
+    const MAX_COL = Math.max(20, (cols.puntaje || 8) + 3);
+    for (let c = 1; c <= MAX_COL; c++) {
+      const v = cellStr(row.getCell(c));
+      if (v) { primeraNoVacia = v; break; }
+    }
+
+    if (!primeraNoVacia) {
+      if (leyendoCursos && filasCursosSeguidas > 0) {
+        // fila vacía después de cursos = fin del bloque
+        break;
+      }
+      continue;
+    }
+
+    const etiqueta = normalizar(primeraNoVacia);
+
+    // Nuevo bloque de alumno: stop
+    if (etiqueta === 'DNI' && rn > dniRowNum + 2) break;
+
+    if (!leyendoCursos) {
+      if (etiqueta === 'CURSOS') { leyendoCursos = true; continue; }
+    } else {
+      if (etiqueta === 'CURSOS') continue; // cabecera repetida
+
+      if (etiqueta === 'GLOBAL' || etiqueta === 'TOTAL GENERAL' || etiqueta === 'TOTAL') {
+        global = leerFilaScore(row, cols);
+        break; // fin del bloque
+      }
+
+      // Es una fila de curso
+      if (primeraNoVacia.trim()) {
+        cursos.push({ curso: primeraNoVacia.trim(), ...leerFilaScore(row, cols) });
+        filasCursosSeguidas++;
+      }
+    }
+  }
+
+  if (!global && cursos.length === 0) return null;
+
+  // Calcular global a partir de cursos si falta
+  if (!global && cursos.length > 0) {
+    global = {
+      total:    cursos.reduce((s, c) => s + (c.total || 0), 0),
+      aciertos: cursos.reduce((s, c) => s + (c.aciertos || 0), 0),
+      fallos:   cursos.reduce((s, c) => s + (c.fallos || 0), 0),
+      blanco:   cursos.reduce((s, c) => s + (c.blanco || 0), 0),
+      puntaje:  cursos.reduce((s, c) => s + (c.puntaje || 0), 0),
     };
   }
 
-  // ── Paso 2: leer bloques por alumno ─────────────────────────────────────────
-  const MAX_COL = Math.max(20, (colPctBlanco || 11) + 5);
-  let alumnoActual = null;
-  let leyendoCursos = false;
+  return { global, cursos };
+}
 
-  sheet.eachRow((row, _rowNum) => {
-    // Buscar etiqueta en ancho amplio
-    const primeraCelda = primerTexto(row, 1, MAX_COL);
-    if (!primeraCelda) return;
+// ── Extraer datos de una fila tabular ─────────────────────────────────────────
 
-    const etiqueta = normalizar(primeraCelda.texto);
+function extraerFilaTabular(row, cols) {
+  const score = leerFilaScore(row, cols);
+  if (score.aciertos === 0 && score.fallos === 0 && score.puntaje === 0) return null;
+  return { global: score, cursos: [] };
+}
 
-    // ¿Empieza bloque de alumno?
-    if (etiqueta === 'DNI') {
-      if (alumnoActual && (alumnoActual.dni || alumnoActual.nombre)) {
-        alumnos.push(alumnoActual);
+// ── Función principal: buscar notas por alumnos ───────────────────────────────
+
+/**
+ * @param {Buffer} buffer  — archivo Excel
+ * @param {Array}  alumnos — [{ id, dni, codigo, nombres, apellidos }]
+ * @returns {Promise<Array>} — [{ alumnoId, dni, nombres, apellidos, encontradoEnExcel, global, cursos }]
+ */
+async function buscarNotasPorAlumnos(buffer, alumnos) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+
+  // Seleccionar hoja principal
+  const hoja = findSheet(workbook, /estad[ií]stica\s*individual/i)
+    || findSheet(workbook, /individual/i)
+    || findSheet(workbook, /estad[ií]stica/i)
+    || findSheet(workbook, /resultados/i)
+    || workbook.worksheets[0];
+
+  if (!hoja) throw new Error(
+    `No se encontró ninguna hoja de notas. Hojas disponibles: ${workbook.worksheets.map(w => w.name).join(', ')}`
+  );
+
+  console.log('[buscarNotasPorAlumnos] usando hoja:', hoja.name, '| filas:', hoja.rowCount);
+
+  // Detectar columnas de scores una sola vez
+  const cols = detectarColumnas(hoja);
+  console.log('[buscarNotasPorAlumnos] cols detectadas:', cols);
+
+  // Pre-indexar todas las celdas
+  const idx = preindexarCeldas(hoja);
+  console.log('[buscarNotasPorAlumnos] celdas indexadas:', idx.size, 'claves únicas');
+
+  const resultados = [];
+
+  for (const alumno of alumnos) {
+    const dniRaw  = String(alumno.dni    || '').replace(/\s/g, '');
+    const codigoRaw = String(alumno.codigo || '').replace(/\s/g, '');
+
+    // Candidatos: DNI, DNI sin ceros, código
+    const candidatos = [];
+    if (dniRaw)                          candidatos.push(dniRaw);
+    const dniSinCeros = dniRaw.replace(/^0+/, '');
+    if (dniSinCeros && dniSinCeros !== dniRaw) candidatos.push(dniSinCeros);
+    if (codigoRaw)                       candidatos.push(codigoRaw);
+
+    let datos = null;
+
+    for (const clave of candidatos) {
+      const hits = idx.get(clave) || [];
+      for (const { rowNum, colNum } of hits) {
+        const row = hoja.getRow(rowNum);
+
+        // Verificar que la celda encontrada está en contexto de bloque
+        // (la celda de la izquierda o de la fila anterior debe tener "DNI" o similar)
+        let esContextoDni = false;
+
+        // Revisar si en esa fila hay una celda con texto "DNI" antes de la celda encontrada
+        for (let c = 1; c < colNum; c++) {
+          const lab = normalizar(cellStr(row.getCell(c)) || '');
+          if (lab === 'DNI' || lab === 'DNI ALUMNO') { esContextoDni = true; break; }
+        }
+
+        // También revisar si la propia celda es la única con valor en una "DNI row"
+        if (!esContextoDni) {
+          // Buscar en filas cercanas si hay un label "DNI"
+          for (let dr = -3; dr <= 0; dr++) {
+            const rn = rowNum + dr;
+            if (rn < 1) continue;
+            const r = hoja.getRow(rn);
+            for (let c = 1; c <= 5; c++) {
+              const lab = normalizar(cellStr(r.getCell(c)) || '');
+              if (lab === 'DNI') { esContextoDni = true; break; }
+            }
+            if (esContextoDni) break;
+          }
+        }
+
+        if (!esContextoDni) {
+          // Aun así intentar extraer (puede ser formato tabular)
+          const intento = extraerFilaTabular(row, cols);
+          if (intento) { datos = intento; break; }
+          continue;
+        }
+
+        const intento = extraerBloqueDesdeRow(hoja, rowNum, cols);
+        if (intento) { datos = intento; break; }
       }
-      const dniRaw = siguienteValor(row, primeraCelda.col + 1) || '';
-      // DEBUG: log raw cell value for diagnosis
-      const dniCell = row.getCell(primeraCelda.col + 1);
-      console.log('[parsearExcelResultados] fila DNI col', primeraCelda.col + 1,
-        '| cell.value:', JSON.stringify(dniCell?.value), '| dniRaw:', dniRaw);
-      alumnoActual = {
-        dni:     dniRaw.replace(/\s/g, ''),
-        nombre:  '',
-        area:    '',
-        carrera: '',
-        ciclo:   '',
-        aula:    '',
-        cursos:  [],
-        global:  null,
-      };
-      leyendoCursos = false;
-      return;
+      if (datos) break;
     }
 
-    if (!alumnoActual) return;
-
-    if (!leyendoCursos) {
-      if (etiqueta.includes('APELLIDO') || etiqueta.includes('NOMBRE')) {
-        alumnoActual.nombre = siguienteValor(row, primeraCelda.col + 1) || '';
-      } else if (etiqueta.startsWith('AREA') || etiqueta.startsWith('AREA')) {
-        alumnoActual.area = siguienteValor(row, primeraCelda.col + 1) || '';
-      } else if (etiqueta.startsWith('CARRERA')) {
-        alumnoActual.carrera = siguienteValor(row, primeraCelda.col + 1) || '';
-      } else if (etiqueta === 'CICLO') {
-        alumnoActual.ciclo = siguienteValor(row, primeraCelda.col + 1) || '';
-      } else if (etiqueta === 'AULA') {
-        alumnoActual.aula = siguienteValor(row, primeraCelda.col + 1) || '';
-      } else if (etiqueta === 'CURSOS') {
-        leyendoCursos = true;
-      }
-      return;
-    }
-
-    // Leyendo cursos
-    const nombreCurso = primeraCelda.texto.trim();
-    const nombreNorm  = normalizar(nombreCurso);
-
-    if (nombreNorm === 'CURSOS') return; // cabecera repetida
-
-    if (nombreNorm === 'GLOBAL' || nombreNorm === 'TOTAL GENERAL' || nombreNorm === 'TOTAL') {
-      alumnoActual.global = leerFilaCurso(row);
-    } else if (nombreCurso) {
-      alumnoActual.cursos.push({ curso: nombreCurso, ...leerFilaCurso(row) });
-    }
-  });
-
-  if (alumnoActual && (alumnoActual.dni || alumnoActual.nombre)) {
-    alumnos.push(alumnoActual);
+    resultados.push({
+      alumnoId:          alumno.id,
+      dni:               dniRaw,
+      codigo:            codigoRaw,
+      nombres:           alumno.nombres   || '',
+      apellidos:         alumno.apellidos || '',
+      encontradoEnExcel: !!datos,
+      global:            datos?.global    || null,
+      cursos:            datos?.cursos    || [],
+    });
   }
 
-  return alumnos;
+  const encontrados = resultados.filter(r => r.encontradoEnExcel).length;
+  console.log(`[buscarNotasPorAlumnos] encontrados: ${encontrados}/${alumnos.length}`);
+
+  return resultados;
 }
 
-// ── Hoja RESULTADOS (tabla horizontal, opcional) ──────────────────────────────
+// ── Compatibilidad legacy ─────────────────────────────────────────────────────
 
-/**
- * Lee la hoja RESULTADOS si tiene formato tabular (una fila por alumno).
- * Detecta automáticamente columnas de DNI, aciertos, fallos, blanco, puntaje.
- */
-function leerHojaResultadosTabular(sheet) {
-  const alumnos = [];
-  if (!sheet) return alumnos;
-
-  let cols = null;
-  let filaDatos = null;
-
-  sheet.eachRow((row, rowNum) => {
-    if (cols) return;
-    const found = {};
-    let count = 0;
-    row.eachCell((cell, colNum) => {
-      const v = normalizar(cellStr(cell) || '');
-      if (v === 'DNI')                                                       { found.dni = colNum; count++; }
-      if (v === 'CODIGO' || v === 'COD')                                     { found.codigo = colNum; count++; }
-      if (v === 'APELLIDOS Y NOMBRES' || v === 'NOMBRE' || v === 'ALUMNO')   { found.nombre = colNum; count++; }
-      if (v === 'AREA' || v === 'AREA')                                       { found.area = colNum; }
-      if (v === 'CARRERA')                                                   { found.carrera = colNum; }
-      if (v === 'CICLO')                                                     { found.ciclo = colNum; }
-      if (v === 'AULA')                                                      { found.aula = colNum; }
-      if (/^aciertos$/i.test(v) || /^correctas$/i.test(v))                   { found.aciertos = colNum; count++; }
-      if (/^fallos?$/i.test(v) || /^incorrectas$/i.test(v))                  { found.fallos = colNum; count++; }
-      if (/^blanco$/i.test(v) || /^omitidas$/i.test(v))                      { found.blanco = colNum; }
-      if (/^puntaje$/i.test(v) || /^nota$/i.test(v) || /^score$/i.test(v))   { found.puntaje = colNum; count++; }
-    });
-    if (count >= 2 && (found.dni || found.codigo)) {
-      cols = found;
-      filaDatos = rowNum + 1;
-    }
-  });
-
-  if (!cols) return alumnos;
-
-  sheet.eachRow((row, rowNum) => {
-    if (rowNum < filaDatos) return;
-    const dni     = (safeStr(row, cols.dni)     || '').trim().replace(/\s/g, '');
-    const codigo  = (safeStr(row, cols.codigo)  || '').trim();
-    const nombre  = (safeStr(row, cols.nombre)  || '').trim();
-    const area    = (safeStr(row, cols.area)    || '').trim();
-    const carrera = (safeStr(row, cols.carrera) || '').trim();
-    const ciclo   = (safeStr(row, cols.ciclo)   || '').trim();
-    const aula    = (safeStr(row, cols.aula)    || '').trim();
-    if (!dni && !codigo) return;
-
-    const aciertos = safeInt(row, cols.aciertos) ?? 0;
-    const fallos   = safeInt(row, cols.fallos)   ?? 0;
-    const blanco   = safeInt(row, cols.blanco)   ?? 0;
-    const puntaje  = safeNum(row, cols.puntaje)  ?? 0;
-
-    alumnos.push({
-      dni, codigo, nombre, area, carrera, ciclo, aula,
-      cursos: [],
-      global: { aciertos, fallos, blanco, puntaje, total: aciertos + fallos + blanco },
-    });
-  });
-
-  return alumnos;
-}
-
-// ── Función principal ─────────────────────────────────────────────────────────
-
-/**
- * @param {Buffer} buffer
- * @returns {Promise<{ alumnos: Array, mapaExcel: Map<string, object> }>}
- */
 async function parsearExcelResultados(buffer) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
 
-  const hojaEstadistica = findSheet(workbook, /estad[ií]stica\s*individual/i)
+  const hoja = findSheet(workbook, /estad[ií]stica\s*individual/i)
     || findSheet(workbook, /individual/i)
-    || findSheet(workbook, /estad[ií]stica/i);
-
-  const hojaResultados = findSheet(workbook, /^resultados$/i)
+    || findSheet(workbook, /estad[ií]stica/i)
     || findSheet(workbook, /resultados/i);
 
-  const hojaAlumnos = findSheet(workbook, /^alumnos$/i)
-    || findSheet(workbook, /alumnos/i);
+  if (!hoja) throw new Error(
+    `No se encontró la hoja ESTADÍSTICA INDIVIDUAL. Hojas: ${workbook.worksheets.map(w => w.name).join(', ')}`
+  );
 
-  if (!hojaEstadistica && !hojaResultados) {
-    throw new Error(
-      'No se encontró la hoja ESTADÍSTICA INDIVIDUAL ni RESULTADOS en el Excel. ' +
-      `Hojas encontradas: ${workbook.worksheets.map(w => w.name).join(', ')}`
-    );
-  }
+  const cols = detectarColumnas(hoja);
 
-  const mapaAlumnosSheet = leerHojaAlumnos(hojaAlumnos);
+  // Buscar filas que tienen label "DNI" y leer el bloque
+  const alumnos = [];
+  hoja.eachRow((row, rowNum) => {
+    const MAX_COL = 20;
+    for (let c = 1; c <= MAX_COL; c++) {
+      const v = normalizar(cellStr(row.getCell(c)) || '');
+      if (v !== 'DNI') continue;
 
-  // Intentar hoja de estadística primero
-  let estadisticas = hojaEstadistica ? leerHojaEstadistica(hojaEstadistica) : [];
+      // Leer el DNI de la celda siguiente no vacía
+      let dniRaw = null;
+      for (let dc = c + 1; dc <= c + 15; dc++) {
+        const val = cellStr(row.getCell(dc));
+        if (val) { dniRaw = val.replace(/\s/g, ''); break; }
+      }
+      if (!dniRaw || dniRaw === '0') continue;
 
-  // Si no rindió resultados, probar con la hoja RESULTADOS (formato tabular)
-  if (estadisticas.length === 0 && hojaResultados) {
-    estadisticas = leerHojaResultadosTabular(hojaResultados);
-  }
+      const datos = extraerBloqueDesdeRow(hoja, rowNum, cols);
+      if (!datos) continue;
 
-  const alumnos = estadisticas
-    .filter(est => est.dni || est.nombre)
-    .map(est => {
-      const meta = mapaAlumnosSheet.get(est.dni)
-        || mapaAlumnosSheet.get((est.dni || '').replace(/^0+/, ''))
-        || {};
-      return {
-        codigo:  est.codigo  || meta.codigo  || '',
-        dni:     est.dni     || meta.codigo  || '',
-        nombre:  est.nombre  || meta.nombre  || '',
-        area:    est.area    || meta.area    || '',
-        carrera: est.carrera || meta.carrera || '',
-        ciclo:   est.ciclo   || meta.ciclo   || '',
-        aula:    est.aula    || meta.aula    || '',
-        cursos:  est.cursos  || [],
-        global:  est.global  || null,
-      };
-    });
+      alumnos.push({ dni: dniRaw, ...datos });
+      break;
+    }
+  });
 
-  // Construir mapa DNI → datos para lookup O(1) desde el controlador
   const mapaExcel = new Map();
   for (const a of alumnos) {
-    const key = (a.dni || '').trim();
+    const key = a.dni.trim();
     if (key) mapaExcel.set(key, a);
-    // También indexar sin ceros iniciales
-    const keySinCeros = key.replace(/^0+/, '');
-    if (keySinCeros && keySinCeros !== key) mapaExcel.set(keySinCeros, a);
-    // También por código si lo tiene
-    if (a.codigo) mapaExcel.set(a.codigo.trim(), a);
+    const sinCeros = key.replace(/^0+/, '');
+    if (sinCeros && sinCeros !== key) mapaExcel.set(sinCeros, a);
   }
 
   return { alumnos, mapaExcel };
 }
 
-module.exports = { parsearExcelResultados };
+module.exports = { buscarNotasPorAlumnos, parsearExcelResultados };

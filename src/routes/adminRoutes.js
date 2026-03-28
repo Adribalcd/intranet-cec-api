@@ -100,8 +100,10 @@ router.post('/examen/:examenId/notas-excel', auth('admin'), adminCtrl.uploadExce
 router.post('/examen/:examenId/subir-excel-simulacro', auth('admin'), adminCtrl.uploadSimulacroMiddleware, adminCtrl.subirExcelSimulacro);
 router.get('/examen/:examenId/notas-simulacro',       auth('admin'), adminCtrl.getNotasSimulacro);
 
-// Resultados — Excel con hojas ALUMNOS + ESTADÍSTICA INDIVIDUAL
-router.post('/examen/:examenId/subir-excel-resultados', auth('admin'), adminCtrl.uploadResultadosMiddleware, adminCtrl.subirExcelResultados);
+// Resultados — Excel: preview (sin guardar) + confirmación (guarda)
+router.post('/examen/:examenId/subir-excel-resultados',     auth('admin'), adminCtrl.uploadResultadosMiddleware, adminCtrl.subirExcelResultados);
+router.post('/examen/:examenId/preview-excel-resultados',   auth('admin'), adminCtrl.uploadResultadosMiddleware, adminCtrl.previewExcelResultados);
+router.post('/examen/:examenId/confirmar-excel-resultados', auth('admin'), adminCtrl.confirmarExcelResultados);
 
 // Reportes Excel
 router.get('/reportes/alumnos-ciclo', auth('admin'), adminCtrl.reporteAlumnosCiclo);
