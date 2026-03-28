@@ -134,14 +134,14 @@ function leerHojaAlumnos(sheet) {
 
   sheet.eachRow((row, rowNum) => {
     if (rowNum < filaDatos) return;
-    const codigo   = (cellStr(row.getCell(cols.codigo   || 0)) || '').trim();
-    const dni      = (cellStr(row.getCell(cols.dni      || 0)) || '').trim();
-    const nombre   = (cellStr(row.getCell(cols.nombre   || 0)) || '').trim();
-    const apellido = (cellStr(row.getCell(cols.apellido || 0)) || '').trim();
-    const area     = (cellStr(row.getCell(cols.area     || 0)) || '').trim();
-    const carrera  = (cellStr(row.getCell(cols.carrera  || 0)) || '').trim();
-    const ciclo    = (cellStr(row.getCell(cols.ciclo    || 0)) || '').trim();
-    const aula     = (cellStr(row.getCell(cols.aula     || 0)) || '').trim();
+    const codigo   = (safeStr(row, cols.codigo)   || '').trim();
+    const dni      = (safeStr(row, cols.dni)      || '').trim();
+    const nombre   = (safeStr(row, cols.nombre)   || '').trim();
+    const apellido = (safeStr(row, cols.apellido) || '').trim();
+    const area     = (safeStr(row, cols.area)     || '').trim();
+    const carrera  = (safeStr(row, cols.carrera)  || '').trim();
+    const ciclo    = (safeStr(row, cols.ciclo)    || '').trim();
+    const aula     = (safeStr(row, cols.aula)     || '').trim();
     if (!dni && !codigo) return;
     const nombreCompleto = apellido ? `${apellido} ${nombre}`.trim() : nombre;
     const alumno = { codigo, nombre: nombreCompleto, area, carrera, ciclo, aula };
@@ -329,19 +329,19 @@ function leerHojaResultadosTabular(sheet) {
 
   sheet.eachRow((row, rowNum) => {
     if (rowNum < filaDatos) return;
-    const dni     = (cellStr(row.getCell(cols.dni     || 0)) || '').trim().replace(/\s/g, '');
-    const codigo  = (cellStr(row.getCell(cols.codigo  || 0)) || '').trim();
-    const nombre  = (cellStr(row.getCell(cols.nombre  || 0)) || '').trim();
-    const area    = (cellStr(row.getCell(cols.area    || 0)) || '').trim();
-    const carrera = (cellStr(row.getCell(cols.carrera || 0)) || '').trim();
-    const ciclo   = (cellStr(row.getCell(cols.ciclo   || 0)) || '').trim();
-    const aula    = (cellStr(row.getCell(cols.aula    || 0)) || '').trim();
+    const dni     = (safeStr(row, cols.dni)     || '').trim().replace(/\s/g, '');
+    const codigo  = (safeStr(row, cols.codigo)  || '').trim();
+    const nombre  = (safeStr(row, cols.nombre)  || '').trim();
+    const area    = (safeStr(row, cols.area)    || '').trim();
+    const carrera = (safeStr(row, cols.carrera) || '').trim();
+    const ciclo   = (safeStr(row, cols.ciclo)   || '').trim();
+    const aula    = (safeStr(row, cols.aula)    || '').trim();
     if (!dni && !codigo) return;
 
-    const aciertos = cellInt(row.getCell(cols.aciertos || 0)) ?? 0;
-    const fallos   = cellInt(row.getCell(cols.fallos   || 0)) ?? 0;
-    const blanco   = cellInt(row.getCell(cols.blanco   || 0)) ?? 0;
-    const puntaje  = cellNum(row.getCell(cols.puntaje  || 0)) ?? 0;
+    const aciertos = safeInt(row, cols.aciertos) ?? 0;
+    const fallos   = safeInt(row, cols.fallos)   ?? 0;
+    const blanco   = safeInt(row, cols.blanco)   ?? 0;
+    const puntaje  = safeNum(row, cols.puntaje)  ?? 0;
 
     alumnos.push({
       dni, codigo, nombre, area, carrera, ciclo, aula,
