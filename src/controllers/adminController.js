@@ -909,6 +909,27 @@ exports.getExamenesPorCiclo = async (req, res) => {
           ],
         ],
       },
+      include: [
+        {
+          model: PlantillaExamen,
+          as: 'Plantilla',
+          required: false,
+          include: [
+            {
+              model: PlantillaSeccion,
+              as: 'Secciones',
+              required: false,
+              include: [{ model: PlantillaCurso, as: 'Cursos', required: false }],
+            },
+            {
+              model: PlantillaCurso,
+              as: 'Cursos',
+              required: false,
+              where: { seccion_id: null },
+            },
+          ],
+        },
+      ],
     });
     res.json(examenes);
   } catch (error) {
@@ -951,69 +972,83 @@ exports.getNotasExamen = async (req, res) => {
 exports.registrarCalificaciones = async (req, res) => {
   try {
     const { examenId } = req.params;
-    const calificaciones = req.body; // [ { codigoAlumno, nota } ] o [ { codigoAlumno, buenas, malas } ]
+    // Soporta: [ { codigoAlumno, nota } ]
+    //          [ { codigoAlumno, buenas, malas } ]
+    //          [ { codigoAlumno, cursos: [{nombre, buenas, malas}] } ]  ← por plantilla
+    const calificaciones = req.body;
 
     if (!Array.isArray(calificaciones)) {
       return res.status(400).json({ error: 'Se requiere un array de calificaciones' });
     }
 
-    // Obtener el examen para leer los puntajes configurados
     const examen = await Examen.findByPk(examenId);
     if (!examen) return res.status(404).json({ error: 'Examen no encontrado' });
 
     const pBuena = parseFloat(examen.puntaje_pregunta_buena) || 4.00;
     const pMala  = parseFloat(examen.puntaje_pregunta_mala)  || 1.00;
 
-    // Buscar alumnos por código
     const codigos = calificaciones.map((c) => c.codigoAlumno);
     const alumnos = await Alumno.findAll({ where: { codigo: { [Op.in]: codigos } } });
     const alumnoMap = {};
     alumnos.forEach((a) => { alumnoMap[a.codigo] = a.id; });
 
-    // Calcular nota final: si vienen buenas/malas → fórmula; si viene nota → usarla directo
     const conValor = calificaciones
       .filter((c) => alumnoMap[c.codigoAlumno])
       .map((c) => {
-        let valor;
-        let buenas = null;
-        let malas  = null;
-        if (c.buenas != null && c.malas != null) {
+        let valor, buenas = null, malas = null;
+
+        if (Array.isArray(c.cursos) && c.cursos.length > 0) {
+          // Acumular buenas/malas de todos los cursos
+          buenas = c.cursos.reduce((s, cur) => s + (parseInt(cur.buenas, 10) || 0), 0);
+          malas  = c.cursos.reduce((s, cur) => s + (parseInt(cur.malas,  10) || 0), 0);
+          valor  = Math.max(0, (buenas * pBuena) - (malas * pMala));
+        } else if (c.buenas != null && c.malas != null) {
           buenas = parseInt(c.buenas, 10);
           malas  = parseInt(c.malas,  10);
           valor  = Math.max(0, (buenas * pBuena) - (malas * pMala));
         } else {
           valor = parseFloat(c.nota);
         }
-        return { codigoAlumno: c.codigoAlumno, valor, buenas, malas };
+        return { codigoAlumno: c.codigoAlumno, valor, buenas, malas, cursos: c.cursos || [] };
       });
 
-    // Ordenar por valor descendente para calcular puesto
     const ordenadas = [...conValor].sort((a, b) => b.valor - a.valor);
 
-    const notas = ordenadas.map((c, index) => ({
-      examen_id: parseInt(examenId),
-      alumno_id: alumnoMap[c.codigoAlumno],
-      valor:     c.valor,
-      buenas:    c.buenas,
-      malas:     c.malas,
-      puesto:    index + 1,
-    }));
-
-    // Upsert por alumno dentro de una transacción (evita duplicados)
     await sequelize.transaction(async (t) => {
-      for (const nota of notas) {
+      for (let index = 0; index < ordenadas.length; index++) {
+        const c = ordenadas[index];
+        const alumnoId = alumnoMap[c.codigoAlumno];
+
         const [record, created] = await Nota.findOrCreate({
-          where: { examen_id: nota.examen_id, alumno_id: nota.alumno_id },
-          defaults: nota,
+          where: { examen_id: parseInt(examenId), alumno_id: alumnoId },
+          defaults: { examen_id: parseInt(examenId), alumno_id: alumnoId, valor: c.valor, buenas: c.buenas, malas: c.malas, puesto: index + 1 },
           transaction: t,
         });
         if (!created) {
-          await record.update({ valor: nota.valor, buenas: nota.buenas, malas: nota.malas, puesto: nota.puesto }, { transaction: t });
+          await record.update({ valor: c.valor, buenas: c.buenas, malas: c.malas, puesto: index + 1 }, { transaction: t });
+        }
+
+        // Guardar detalle por curso si viene
+        if (c.cursos.length > 0) {
+          await NotaCurso.destroy({ where: { nota_id: record.id }, transaction: t });
+          const detalles = c.cursos.map((cur) => {
+            const b = parseInt(cur.buenas, 10) || 0;
+            const m = parseInt(cur.malas,  10) || 0;
+            return {
+              nota_id:      record.id,
+              curso_nombre: cur.nombre,
+              buenas:       b,
+              malas:        m,
+              nc:           null,
+              puntaje:      Math.max(0, (b * pBuena) - (m * pMala)),
+            };
+          });
+          await NotaCurso.bulkCreate(detalles, { transaction: t });
         }
       }
     });
 
-    res.json({ ok: true, cantidad: notas.length });
+    res.json({ ok: true, cantidad: ordenadas.length });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
