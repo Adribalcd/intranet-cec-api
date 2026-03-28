@@ -408,11 +408,12 @@ exports.calificacionesSimulacro = async (req, res) => {
         carrera:           n.carrera,
         aula:              n.aula,
         cursos:            (n.Cursos || []).map(c => ({
-          curso:   c.curso_nombre,
-          buenas:  c.buenas,
-          malas:   c.malas,
-          nc:      c.nc,
-          puntaje: parseFloat(c.puntaje) || 0,
+          curso:      c.curso_nombre,
+          buenas:     c.buenas,
+          malas:      c.malas,
+          nc:         c.nc,
+          puntaje:    parseFloat(c.puntaje) || 0,
+          respuestas: c.respuestas,
         })),
       }))
     );
