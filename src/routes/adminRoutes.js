@@ -52,6 +52,7 @@ router.get('/plantillas-examen/:id',    auth('admin'), adminCtrl.getPlantillaExa
 router.post('/plantillas-examen',       auth('admin'), adminCtrl.crearPlantillaExamen);
 router.put('/plantillas-examen/:id',    auth('admin'), adminCtrl.actualizarPlantillaExamen);
 router.delete('/plantillas-examen/:id', auth('admin'), adminCtrl.eliminarPlantillaExamen);
+router.post('/plantillas-examen/:id/duplicar', auth('admin'), adminCtrl.duplicarPlantillaExamen);
 
 // Exámenes y calificaciones
 router.post('/examen', auth('admin'), adminCtrl.crearExamen);

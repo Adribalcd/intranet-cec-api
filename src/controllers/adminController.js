@@ -2563,6 +2563,64 @@ exports.eliminarPlantillaExamen = async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
+// ===================== DUPLICAR PLANTILLA DE EXAMEN =====================
+
+exports.duplicarPlantillaExamen = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nuevoNombre } = req.body;
+
+    if (!nuevoNombre) return res.status(400).json({ error: 'Debe proporcionar un nuevo nombre' });
+
+    // Cargar original con sus relaciones
+    const original = await PlantillaExamen.findByPk(id, {
+      include: [
+        { model: PlantillaSeccion, as: 'secciones' },
+        { model: PlantillaCurso, as: 'cursos' }
+      ]
+    });
+
+    if (!original) return res.status(404).json({ error: 'Plantilla original no encontrada' });
+
+    const duplicada = await sequelize.transaction(async (t) => {
+      // 1. Crear cabecera
+      const nuevaPlantilla = await PlantillaExamen.create({
+        nombre: nuevoNombre,
+        activo: true
+      }, { transaction: t });
+
+      // 2. Duplicar secciones
+      if (original.secciones && original.secciones.length > 0) {
+        const nuevasSecciones = original.secciones.map(s => ({
+          plantilla_examen_id: nuevaPlantilla.id,
+          nombre: s.nombre,
+          cantidad_preguntas: s.cantidad_preguntas,
+          orden: s.orden
+        }));
+        await PlantillaSeccion.bulkCreate(nuevasSecciones, { transaction: t });
+      }
+
+      // 3. Duplicar cursos
+      if (original.cursos && original.cursos.length > 0) {
+        const nuevosCursos = original.cursos.map(c => ({
+          plantilla_examen_id: nuevaPlantilla.id,
+          curso_nombre: c.curso_nombre,
+          cantidad_preguntas: c.cantidad_preguntas,
+          orden: c.orden
+        }));
+        await PlantillaCurso.bulkCreate(nuevosCursos, { transaction: t });
+      }
+
+      return nuevaPlantilla;
+    });
+
+    res.json({ ok: true, plantilla: duplicada });
+  } catch (error) {
+    console.error('[duplicarPlantillaExamen] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // ===================== RESULTADOS — SUBIR EXCEL CON ESTADÍSTICA INDIVIDUAL =====================
 
 // Reutiliza el mismo multer de Excel
