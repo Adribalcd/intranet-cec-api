@@ -2572,11 +2572,15 @@ exports.duplicarPlantillaExamen = async (req, res) => {
 
     if (!nuevoNombre) return res.status(400).json({ error: 'Debe proporcionar un nuevo nombre' });
 
-    // Cargar original con sus relaciones
+    // Cargar original con sus relaciones (usando ALIAS CORRECTOS de models/index.js)
     const original = await PlantillaExamen.findByPk(id, {
       include: [
-        { model: PlantillaSeccion, as: 'secciones' },
-        { model: PlantillaCurso, as: 'cursos' }
+        {
+          model: PlantillaSeccion,
+          as: 'Secciones',
+          include: [{ model: PlantillaCurso, as: 'Cursos' }]
+        },
+        { model: PlantillaCurso, as: 'Cursos' }
       ]
     });
 
@@ -2586,26 +2590,45 @@ exports.duplicarPlantillaExamen = async (req, res) => {
       // 1. Crear cabecera
       const nuevaPlantilla = await PlantillaExamen.create({
         nombre: nuevoNombre,
-        activo: true
+        descripcion: original.descripcion,
+        tipo_calculo: original.tipo_calculo,
+        tiene_secciones: original.tiene_secciones,
+        activo: 1
       }, { transaction: t });
 
-      // 2. Duplicar secciones
-      if (original.secciones && original.secciones.length > 0) {
-        const nuevasSecciones = original.secciones.map(s => ({
-          plantilla_examen_id: nuevaPlantilla.id,
-          nombre: s.nombre,
-          cantidad_preguntas: s.cantidad_preguntas,
-          orden: s.orden
-        }));
-        await PlantillaSeccion.bulkCreate(nuevasSecciones, { transaction: t });
-      }
+      // 2. Duplicar si tiene secciones
+      if (original.tiene_secciones && original.Secciones) {
+        for (const s of original.Secciones) {
+          const nuevaSeccion = await PlantillaSeccion.create({
+            plantilla_id: nuevaPlantilla.id,
+            nombre: s.nombre,
+            orden: s.orden
+          }, { transaction: t });
 
-      // 3. Duplicar cursos
-      if (original.cursos && original.cursos.length > 0) {
-        const nuevosCursos = original.cursos.map(c => ({
-          plantilla_examen_id: nuevaPlantilla.id,
-          curso_nombre: c.curso_nombre,
+          // Duplicar cursos de la sección
+          if (s.Cursos) {
+            const nuevosCursosSec = s.Cursos.map(c => ({
+              plantilla_id: nuevaPlantilla.id,
+              seccion_id: nuevaSeccion.id,
+              nombre: c.nombre,
+              cantidad_preguntas: c.cantidad_preguntas,
+              puntaje_buena: c.puntaje_buena,
+              puntaje_mala: c.puntaje_mala,
+              orden: c.orden
+            }));
+            await PlantillaCurso.bulkCreate(nuevosCursosSec, { transaction: t });
+          }
+        }
+      } 
+      // 3. Duplicar si son cursos directos (sin secciones)
+      else if (original.Cursos) {
+        const nuevosCursos = original.Cursos.map(c => ({
+          plantilla_id: nuevaPlantilla.id,
+          seccion_id: null,
+          nombre: c.nombre,
           cantidad_preguntas: c.cantidad_preguntas,
+          puntaje_buena: c.puntaje_buena,
+          puntaje_mala: c.puntaje_mala,
           orden: c.orden
         }));
         await PlantillaCurso.bulkCreate(nuevosCursos, { transaction: t });
