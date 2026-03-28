@@ -17,6 +17,20 @@ const ExcelJS = require('exceljs');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Versión segura: si colIdx es falsy devuelve null en vez de llamar getCell(0) */
+function safeStr(row, colIdx) {
+  if (!colIdx) return null;
+  return cellStr(row.getCell(colIdx));
+}
+function safeNum(row, colIdx) {
+  if (!colIdx) return null;
+  return cellNum(row.getCell(colIdx));
+}
+function safeInt(row, colIdx) {
+  if (!colIdx) return null;
+  return cellInt(row.getCell(colIdx));
+}
+
 function cellStr(cell) {
   if (!cell) return null;
   const v = cell.value;
