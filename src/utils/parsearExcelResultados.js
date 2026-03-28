@@ -8,7 +8,7 @@
  *   - Fila 2 (sub-header): (vacio/CLAVES) | A|B|C|D... | (vacio) | ... | B | M | NC | PUNTAJE | B | M | NC | PUNTAJE | ...
  *   - Fila 3+: datos de alumnos
  *
- * Busca cada alumno matriculado por DNI y extrae sus puntajes por curso.
+ * Busca cada alumno matriculado por DNI y extrae sus puntajes por curso y respuestas.
  *
  * Exporta:
  *   buscarNotasPorAlumnos(buffer, alumnos) → Array de resultados por alumno
@@ -93,6 +93,7 @@ function leerFilaMap(row) {
  *    dataStartRow: number,    ← primera fila con datos de alumnos
  *    cursos: [{ nombre, colB, colM, colNC, colPuntaje }],
  *    totalPuntajeCol: number | null,
+ *    respuestasLayout: [{ n, col }], ← mapeo de R1, R2...
  *  }
  */
 function detectarEstructura(sheet) {
@@ -129,13 +130,19 @@ function detectarEstructura(sheet) {
 
   const cells = subHeader.cells;
 
-  // Fila encima: contiene nombres de cursos (en celdas mergeadas → solo la primera tiene valor)
+  // Fila encima: puede contener "R1", "R2", "R3"... o nombres de cursos
   const rowArriba = sheet.getRow(subHeaderRowNum - 1);
   const cellsArriba = leerFilaMap(rowArriba);
 
-  // También puede que los nombres de cursos estén en la MISMA fila de sub-header
-  // (si solo hay una fila de header en lugar de dos)
-  // En ese caso los nombres están antes del primer "B"
+  // Detectar layout de respuestas (R1, R2...)
+  // Suelen estar al principio, antes del primer nombre de curso o primer DNI
+  const respuestasLayout = [];
+  for (const [col, val] of cellsArriba) {
+    const vn = normalizar(val);
+    if (vn.startsWith('R') && !isNaN(parseInt(vn.substring(1)))) {
+      respuestasLayout.push({ n: parseInt(vn.substring(1)), col });
+    }
+  }
 
   // Encontrar el primer "B" en el sub-header (en la sección de scores)
   // Para distinguir del lado de respuestas (R1,R2..) usamos: el lado de scores tiene PUNTAJE
@@ -243,6 +250,7 @@ function detectarEstructura(sheet) {
     dataStartRow: subHeaderRowNum + 1,
     cursos: cursosDetectados,
     totalPuntajeCol,
+    respuestasLayout,
   };
 }
 
@@ -273,7 +281,7 @@ async function buscarNotasPorAlumnos(buffer, alumnos) {
     );
   }
 
-  const { dniCol, dataStartRow, cursos, totalPuntajeCol } = estructura;
+  const { dniCol, dataStartRow, cursos, totalPuntajeCol, respuestasLayout } = estructura;
 
   // Construir índice DNI → rowNum escaneando la columna DNI
   const dniRowMap = new Map();
@@ -323,14 +331,41 @@ async function buscarNotasPorAlumnos(buffer, alumnos) {
 
     const row = hoja.getRow(rowNum);
 
+    // Mapear respuestas R1, R2... por posición
+    const totalRespuestas = new Map();
+    for (const r of respuestasLayout) {
+      const resp = cellStr(row.getCell(r.col));
+      if (resp) totalRespuestas.set(r.n, resp);
+    }
+
     // Extraer puntaje por curso
-    const cursosData = cursos.map(c => ({
-      curso:    c.nombre,
-      aciertos: c.colB   ? (cellInt(row.getCell(c.colB))      ?? 0) : 0,
-      fallos:   c.colM   ? (cellInt(row.getCell(c.colM))      ?? 0) : 0,
-      blanco:   c.colNC  ? (cellInt(row.getCell(c.colNC))     ?? 0) : 0,
-      puntaje:  c.colPuntaje ? (cellNum(row.getCell(c.colPuntaje)) ?? 0) : 0,
-    }));
+    let pregContador = 1;
+    const cursosData = cursos.map(c => {
+      // Intentar extraer las respuestas de este curso basándonos en la cantidad de preguntas (B+M+NC)
+      const aciertos = c.colB   ? (cellInt(row.getCell(c.colB))      ?? 0) : 0;
+      const fallos   = c.colM   ? (cellInt(row.getCell(c.colM))      ?? 0) : 0;
+      const blanco   = c.colNC  ? (cellInt(row.getCell(c.colNC))     ?? 0) : 0;
+      const cantC    = aciertos + fallos + blanco;
+      
+      const respsCurso = [];
+      for (let i = 0; i < cantC; i++) {
+        if (totalRespuestas.has(pregContador)) {
+          respsCurso.push(totalRespuestas.get(pregContador));
+        } else {
+          respsCurso.push(null);
+        }
+        pregContador++;
+      }
+
+      return {
+        curso:      c.nombre,
+        aciertos,
+        fallos,
+        blanco,
+        puntaje:    c.colPuntaje ? (cellNum(row.getCell(c.colPuntaje)) ?? 0) : 0,
+        respuestas: respsCurso.join(''),
+      };
+    });
 
     // Puntaje total
     const puntajeTotal = totalPuntajeCol

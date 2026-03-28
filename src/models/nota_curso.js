@@ -14,6 +14,7 @@ const NotaCurso = sequelize.define('NotaCurso', {
   malas:         { type: DataTypes.INTEGER,       defaultValue: 0 },
   nc:            { type: DataTypes.INTEGER,       defaultValue: 0 },
   puntaje:       { type: DataTypes.DECIMAL(10,3), allowNull: true },
+  respuestas:    { type: DataTypes.TEXT,          allowNull: true, defaultValue: null },
 }, { tableName: 'nota_curso', timestamps: false });
 
 module.exports = NotaCurso;

@@ -2766,10 +2766,11 @@ exports.confirmarExcelResultados = async (req, res) => {
           await NotaCurso.bulkCreate(cursos.map(c => ({
             nota_id:      nota.id,
             curso_nombre: c.curso,
-            buenas:       c.aciertos ?? 0,
-            malas:        c.fallos   ?? 0,
-            nc:           c.blanco   ?? 0,
-            puntaje:      c.puntaje  ?? null,
+            buenas:       c.aciertos   ?? 0,
+            malas:        c.fallos     ?? 0,
+            nc:           c.blanco     ?? 0,
+            puntaje:      c.puntaje    ?? null,
+            respuestas:   c.respuestas ?? null,
           })));
         }
 
