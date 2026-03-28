@@ -2558,6 +2558,10 @@ exports.subirExcelResultados = async (req, res) => {
 
     const { mapaExcel } = parsed;
 
+    // DEBUG: muestra las primeras claves del mapa para diagnóstico
+    const primerasClaves = [...mapaExcel.keys()].slice(0, 10);
+    console.log('[subirExcelResultados] mapaExcel.size:', mapaExcel.size, '| primeras claves:', primerasClaves);
+
     if (!mapaExcel || mapaExcel.size === 0) {
       return res.status(422).json({ error: 'El Excel no contiene filas de alumnos válidos.' });
     }

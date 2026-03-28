@@ -235,6 +235,10 @@ function leerHojaEstadistica(sheet) {
         alumnos.push(alumnoActual);
       }
       const dniRaw = siguienteValor(row, primeraCelda.col + 1) || '';
+      // DEBUG: log raw cell value for diagnosis
+      const dniCell = row.getCell(primeraCelda.col + 1);
+      console.log('[parsearExcelResultados] fila DNI col', primeraCelda.col + 1,
+        '| cell.value:', JSON.stringify(dniCell?.value), '| dniRaw:', dniRaw);
       alumnoActual = {
         dni:     dniRaw.replace(/\s/g, ''),
         nombre:  '',
