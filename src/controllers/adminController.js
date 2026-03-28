@@ -8,6 +8,7 @@ const ExcelJS = require('exceljs');
 const { google } = require('googleapis');
 const { sequelize, Admin, Ciclo, Curso, HorarioCurso, Matricula, Alumno, Asistencia, Examen, Nota, NotaCurso, Material, ConceptoPago, PlantillaExamen, PlantillaSeccion, PlantillaCurso } = require('../models');
 const { parsearExcelSimulacro, CURSOS_SIMULACRO } = require('../utils/parsearExcelSimulacro');
+const { parsearExcelResultados } = require('../utils/parsearExcelResultados');
 const { generarToken } = require('../utils/tokenUtils');
 const { sendCredentials, sendWelcomeCiclo } = require('../utils/emailService');
 const axios = require('axios');
@@ -2490,4 +2491,130 @@ exports.eliminarPlantillaExamen = async (req, res) => {
     await plantilla.destroy();
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+// ===================== RESULTADOS — SUBIR EXCEL CON ESTADÍSTICA INDIVIDUAL =====================
+
+// Reutiliza el mismo multer de Excel
+exports.uploadResultadosMiddleware = uploadExcel.single('archivo');
+
+/**
+ * POST /api/admin/examen/:examenId/subir-excel-resultados
+ * Procesa el Excel con hojas ALUMNOS + ESTADÍSTICA INDIVIDUAL y guarda
+ * los resultados por alumno y por curso en las tablas nota / nota_curso.
+ *
+ * Respuesta: { ok, resumen: { procesados, noEncontrados, errores } }
+ */
+exports.subirExcelResultados = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió archivo Excel.' });
+
+    const examenId = parseInt(req.params.examenId, 10);
+    const examen = await Examen.findByPk(examenId);
+    if (!examen) return res.status(404).json({ error: 'Examen no encontrado.' });
+
+    // ── Parsear el Excel ──────────────────────────────────────────────────────
+    let parsed;
+    try {
+      parsed = await parsearExcelResultados(req.file.buffer);
+    } catch (parseErr) {
+      return res.status(422).json({ error: `Error al leer el Excel: ${parseErr.message}` });
+    }
+
+    const { alumnos: filas } = parsed;
+
+    if (!filas || filas.length === 0) {
+      return res.status(422).json({ error: 'El Excel no contiene filas de alumnos válidos.' });
+    }
+
+    // ── Cargar alumnos de la BD para lookup por código/DNI ────────────────────
+    const alumnosBD = await Alumno.findAll({ attributes: ['id', 'codigo', 'dni'] });
+    const porCodigo = new Map(alumnosBD.map(a => [String(a.codigo || '').trim(), a.id]));
+    const porDni    = new Map(alumnosBD.map(a => [String(a.dni    || '').trim(), a.id]));
+
+    const resumen = { procesados: 0, noEncontrados: [], errores: [] };
+
+    for (const fila of filas) {
+      try {
+        // Buscar alumno: primero por código, luego por DNI
+        const buscarCodigo = String(fila.codigo || '').trim();
+        const buscarDni    = String(fila.dni    || '').trim();
+
+        let alumnoId = porCodigo.get(buscarCodigo)
+          ?? porDni.get(buscarCodigo)   // a veces el código es el DNI
+          ?? porCodigo.get(buscarDni)
+          ?? porDni.get(buscarDni)
+          ?? null;
+
+        if (!alumnoId) {
+          resumen.noEncontrados.push(buscarCodigo || buscarDni);
+          continue;
+        }
+
+        const global = fila.global ?? {};
+
+        // Upsert Nota global
+        const [nota, created] = await Nota.findOrCreate({
+          where: { examen_id: examenId, alumno_id: alumnoId },
+          defaults: {
+            valor:   global.puntaje  ?? 0,
+            buenas:  global.aciertos ?? null,
+            malas:   global.fallos   ?? null,
+            nc:      global.blanco   ?? null,
+            puesto:  0,
+            area:    fila.area    || null,
+            carrera: fila.carrera || null,
+            aula:    fila.aula    || null,
+          },
+        });
+
+        if (!created) {
+          await nota.update({
+            valor:   global.puntaje  ?? nota.valor,
+            buenas:  global.aciertos ?? nota.buenas,
+            malas:   global.fallos   ?? nota.malas,
+            nc:      global.blanco   ?? nota.nc,
+            area:    fila.area    || nota.area,
+            carrera: fila.carrera || nota.carrera,
+            aula:    fila.aula    || nota.aula,
+          });
+        }
+
+        // Reemplazar detalle por curso
+        await NotaCurso.destroy({ where: { nota_id: nota.id } });
+
+        const detalles = (fila.cursos || []).map(c => ({
+          nota_id:        nota.id,
+          curso_nombre:   c.curso,
+          seccion_nombre: null,
+          buenas:         c.aciertos ?? 0,
+          malas:          c.fallos   ?? 0,
+          nc:             c.blanco   ?? 0,
+          puntaje:        c.puntaje  ?? null,
+        }));
+
+        if (detalles.length > 0) await NotaCurso.bulkCreate(detalles);
+
+        resumen.procesados++;
+      } catch (rowErr) {
+        resumen.errores.push({ codigo: fila.codigo, error: rowErr.message });
+      }
+    }
+
+    // ── Recalcular puestos ────────────────────────────────────────────────────
+    try {
+      const todasNotas = await Nota.findAll({
+        where: { examen_id: examenId },
+        order: [['valor', 'DESC']],
+      });
+      for (let i = 0; i < todasNotas.length; i++) {
+        await todasNotas[i].update({ puesto: i + 1 });
+      }
+    } catch (_) { /* no bloquear si falla el ranking */ }
+
+    return res.json({ ok: true, resumen });
+  } catch (error) {
+    console.error('[subirExcelResultados]', error.message);
+    res.status(500).json({ error: error.message });
+  }
 };
