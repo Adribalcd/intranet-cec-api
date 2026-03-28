@@ -1054,6 +1054,41 @@ exports.registrarCalificaciones = async (req, res) => {
   }
 };
 
+// ===================== BUSCAR NOTA DE ALUMNO POR DNI =====================
+
+exports.getNotasAlumnoPorDNI = async (req, res) => {
+  try {
+    const { examenId, dni } = req.params;
+    const alumno = await Alumno.findOne({ where: { dni } });
+    if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
+
+    const nota = await Nota.findOne({
+      where: {
+        examen_id: examenId,
+        alumno_id: alumno.id,
+      },
+    });
+
+    if (!nota) return res.status(404).json({ error: 'No se encontró nota para este alumno en este examen' });
+
+    res.json({
+      alumno: {
+        id: alumno.id,
+        codigo: alumno.codigo,
+        nombres: alumno.nombres,
+        apellidos: alumno.apellidos,
+        dni: alumno.dni,
+      },
+      puesto: nota.puesto,
+      nota: nota.valor,
+      buenas: nota.buenas,
+      malas: nota.malas,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // ===================== CONSULTAR ALUMNO POR CÓDIGO =====================
 
 exports.getAlumnoByCodigo = async (req, res) => {

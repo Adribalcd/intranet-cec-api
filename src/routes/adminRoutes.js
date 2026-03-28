@@ -57,6 +57,9 @@ router.delete('/plantillas-examen/:id', auth('admin'), adminCtrl.eliminarPlantil
 router.post('/examen', auth('admin'), adminCtrl.crearExamen);
 router.post('/examen/:examenId/calificaciones', auth('admin'), adminCtrl.registrarCalificaciones);
 
+// Consultar notas de un alumno por DNI para un examen (para el buscador en el panel admin)
+router.get('/examen/:examenId/notas-alumno/:dni', auth('admin'), adminCtrl.getNotasAlumnoPorDNI);
+
 // Consultar alumno por código
 router.get('/alumno/:codigo', auth('admin'), adminCtrl.getAlumnoByCodigo);
 
