@@ -186,6 +186,14 @@ exports.rankingSalon = async (req, res) => {
   try {
     const { examenId } = req.params;
 
+    // Traer información del examen para conocer el puntaje máximo
+    const examen = await Examen.findByPk(examenId);
+    if (!examen) return res.status(404).json({ error: 'Examen no encontrado' });
+
+    // Puntaje máximo posible del examen
+    const pBuena = parseFloat(examen.puntaje_pregunta_buena) || 4.0;
+    const maxPuntaje = (examen.cantidad_preguntas || 100) * pBuena;
+
     // Verificar que este alumno participó en este examen
     const miNota = await Nota.findOne({
       where: { examen_id: examenId, alumno_id: req.usuario.id },
@@ -200,20 +208,34 @@ exports.rankingSalon = async (req, res) => {
 
     const totalAlumnos = todas.length;
 
-    // Distribución por rangos
-    const rangos = [
-      { rango: '18–20', min: 18, max: 20 },
-      { rango: '14–17', min: 14, max: 17 },
-      { rango: '11–13', min: 11, max: 13 },
-      { rango: '7–10',  min: 7,  max: 10  },
-      { rango: '0–6',   min: 0,  max: 6   },
+    // Generar rangos dinámicos basados en el puntaje máximo (5 niveles)
+    // Ej: 85-100%, 70-84%, 55-69%, 40-54%, 0-39%
+    const porcentajes = [
+      { label: '85-100%', minPct: 0.85, maxPct: 1.00 },
+      { label: '70-84%',  minPct: 0.70, maxPct: 0.8499 },
+      { label: '55-69%',  minPct: 0.55, maxPct: 0.6999 },
+      { label: '40-54%',  minPct: 0.40, maxPct: 0.5499 },
+      { label: '0-39%',   minPct: 0.00, maxPct: 0.3999 },
     ];
 
-    const distribucion = rangos.map((r) => ({
-      rango: r.rango,
-      cantidad: todas.filter((n) => Number(n.valor) >= r.min && Number(n.valor) <= r.max).length,
-      incluye: Number(miNota.valor) >= r.min && Number(miNota.valor) <= r.max,
-    }));
+    const distribucion = porcentajes.map((p) => {
+      const minVal = maxPuntaje * p.minPct;
+      const maxVal = maxPuntaje * p.maxPct;
+      const cantidad = todas.filter((n) => {
+        const v = Number(n.valor);
+        return v >= minVal && v <= maxVal;
+      }).length;
+      
+      const incluye = Number(miNota.valor) >= minVal && Number(miNota.valor) <= maxVal;
+      
+      return {
+        rango: p.label,
+        min: minVal,
+        max: maxVal,
+        cantidad,
+        incluye
+      };
+    });
 
     // Percentil (qué porcentaje tiene nota MENOR que yo)
     const menores = todas.filter((n) => Number(n.valor) < Number(miNota.valor)).length;
@@ -224,6 +246,7 @@ exports.rankingSalon = async (req, res) => {
       totalAlumnos,
       miPuesto: miNota.puesto,
       miNota: Number(miNota.valor),
+      maxPuntaje,
       percentil,
       distribucion,
     });
