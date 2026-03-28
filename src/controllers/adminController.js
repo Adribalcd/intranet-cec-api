@@ -2521,33 +2521,42 @@ exports.subirExcelResultados = async (req, res) => {
       return res.status(422).json({ error: `Error al leer el Excel: ${parseErr.message}` });
     }
 
-    const { alumnos: filas } = parsed;
+    const { mapaExcel } = parsed;
 
-    if (!filas || filas.length === 0) {
+    if (!mapaExcel || mapaExcel.size === 0) {
       return res.status(422).json({ error: 'El Excel no contiene filas de alumnos válidos.' });
     }
 
-    // ── Cargar alumnos de la BD para lookup por código/DNI ────────────────────
-    const alumnosBD = await Alumno.findAll({ attributes: ['id', 'codigo', 'dni'] });
-    const porCodigo = new Map(alumnosBD.map(a => [String(a.codigo || '').trim(), a.id]));
-    const porDni    = new Map(alumnosBD.map(a => [String(a.dni    || '').trim(), a.id]));
+    // ── Obtener alumnos matriculados en el ciclo del examen ───────────────────
+    const matriculas = await Matricula.findAll({
+      where: { ciclo_id: examen.ciclo_id },
+      include: [{ model: Alumno, attributes: ['id', 'codigo', 'dni', 'nombres', 'apellidos'] }],
+    });
 
-    const resumen = { procesados: 0, noEncontrados: [], errores: [] };
+    if (matriculas.length === 0) {
+      return res.status(422).json({ error: 'No hay alumnos matriculados en el ciclo de este examen.' });
+    }
 
-    for (const fila of filas) {
+    const resumen = { procesados: 0, noEncontradosEnExcel: [], errores: [] };
+
+    for (const matricula of matriculas) {
+      const alumno = matricula.Alumno;
+      if (!alumno) continue;
+
       try {
-        // Buscar alumno: primero por código, luego por DNI
-        const buscarCodigo = String(fila.codigo || '').trim();
-        const buscarDni    = String(fila.dni    || '').trim();
+        // Buscar datos del alumno en el Excel por DNI o código
+        const dni    = String(alumno.dni    || '').trim();
+        const codigo = String(alumno.codigo || '').trim();
 
-        let alumnoId = porCodigo.get(buscarCodigo)
-          ?? porDni.get(buscarCodigo)   // a veces el código es el DNI
-          ?? porCodigo.get(buscarDni)
-          ?? porDni.get(buscarDni)
-          ?? null;
+        const fila = mapaExcel.get(dni)
+          || mapaExcel.get(dni.replace(/^0+/, ''))
+          || mapaExcel.get(codigo)
+          || null;
 
-        if (!alumnoId) {
-          resumen.noEncontrados.push(buscarCodigo || buscarDni);
+        if (!fila) {
+          resumen.noEncontradosEnExcel.push(
+            `${alumno.apellidos} ${alumno.nombres} (DNI: ${dni || codigo})`
+          );
           continue;
         }
 
@@ -2555,7 +2564,7 @@ exports.subirExcelResultados = async (req, res) => {
 
         // Upsert Nota global
         const [nota, created] = await Nota.findOrCreate({
-          where: { examen_id: examenId, alumno_id: alumnoId },
+          where: { examen_id: examenId, alumno_id: alumno.id },
           defaults: {
             valor:   global.puntaje  ?? 0,
             buenas:  global.aciertos ?? null,
@@ -2597,7 +2606,10 @@ exports.subirExcelResultados = async (req, res) => {
 
         resumen.procesados++;
       } catch (rowErr) {
-        resumen.errores.push({ codigo: fila.codigo, error: rowErr.message });
+        resumen.errores.push({
+          alumno: `${alumno.apellidos} ${alumno.nombres}`,
+          error: rowErr.message,
+        });
       }
     }
 
