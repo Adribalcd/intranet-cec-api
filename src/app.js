@@ -22,7 +22,23 @@ app.use((req, res, next) => {
 });
 
 // Middlewares
-app.use(cors());
+const ALLOWED_ORIGINS = [
+  'https://intranet.cecamargo.cloud',
+  'https://admin.cecamargo.cloud',
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Permitir requests sin origin (ej. Postman, curl, servidor a servidor)
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origen no permitido — ${origin}`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
+
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
