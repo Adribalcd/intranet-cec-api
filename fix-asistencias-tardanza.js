@@ -2,7 +2,7 @@
  * fix-asistencias-tardanza.js
  *
  * Corrige registros de asistencia que fueron marcados como 'Tardanza'
- * pero cuya hora local (America/Lima, UTC-5) está dentro de 07:00–08:20.
+ * pero cuya hora local (America/Lima, UTC-5) está dentro de 07:00–08:15.
  *
  * Uso:
  *   node fix-asistencias-tardanza.js          <- diagnóstico: muestra todos los Tardanza y su hora local
@@ -42,7 +42,7 @@ function diaLocal(fechaUTC) {
 }
 
 const MIN_INICIO = 7 * 60;       // 07:00 → 420 min
-const MIN_FIN    = 8 * 60 + 20;  // 08:20 → 500 min
+const MIN_FIN    = 8 * 60 + 15;  // 08:15 → 495 min
 const DIAS_ACTIVOS = [1, 2, 3, 4, 5, 6]; // Lun–Sáb
 
 async function main() {
@@ -83,7 +83,7 @@ async function main() {
     return DIAS_ACTIVOS.includes(dia) && mins >= MIN_INICIO && mins <= MIN_FIN;
   });
 
-  console.log(`\nRegistros que deben cambiar a 'Presente' (07:00–08:20 hora Lima): ${aCorregir.length}`);
+  console.log(`\nRegistros que deben cambiar a 'Presente' (07:00–08:15 hora Lima): ${aCorregir.length}`);
 
   if (aCorregir.length === 0) {
     console.log('Ningún Tardanza cae dentro de la ventana 07:00–08:20. Revisa la muestra de arriba para ver las horas reales.');

@@ -742,9 +742,9 @@ exports.cambiarCicloAlumno = async (req, res) => {
 // ─── Configuración de horario de asistencia ────────────────────
 // Activo: Lunes a Sábado (0=Dom, 1=Lun...6=Sáb)
 const DIAS_ACTIVOS = [1, 2, 3, 4, 5, 6]; // Lun–Sáb
-// Ventana "a tiempo": 07:00:00 → 08:20:00
+// Ventana "a tiempo": 07:00:00 → 08:15:00
 const HORA_INICIO_ASIS = { h: 7,  m: 0  }; // 07:00
-const HORA_FIN_PUNTUAL = { h: 8, m: 20 }; // 08:20 — después de esta hora es Tardanza
+const HORA_FIN_PUNTUAL = { h: 8, m: 15 }; // 08:15 — después de esta hora es Tardanza
 
 function calcularEstadoAsistencia(ahora = new Date()) {
   // Convertir a hora local de Lima (UTC-5) para comparar correctamente
@@ -754,7 +754,7 @@ function calcularEstadoAsistencia(ahora = new Date()) {
     return { valido: false, razon: 'El registro de asistencia solo está activo de lunes a sábado.' };
   }
   const minutosAhora = localLima.getHours() * 60 + localLima.getMinutes();
-  const minFin       = HORA_FIN_PUNTUAL.h * 60 + HORA_FIN_PUNTUAL.m; // 500 (08:20)
+  const minFin       = HORA_FIN_PUNTUAL.h * 60 + HORA_FIN_PUNTUAL.m; // 495 (08:15)
   const estado = minutosAhora <= minFin ? 'Presente' : 'Tardanza';
   return { valido: true, estado };
 }
@@ -805,7 +805,7 @@ exports.registrarAsistencia = async (req, res) => {
       ciclo_id:      matricula.ciclo_id,
       fecha_hora:    ahora,
       estado,
-      observaciones: estado === 'Tardanza' ? 'Llegó fuera del horario puntual (07:00–08:20)' : null,
+      observaciones: estado === 'Tardanza' ? 'Llegó fuera del horario puntual (07:00–08:15)' : null,
     });
 
     const alumnoData = alumno.toJSON();
