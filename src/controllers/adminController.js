@@ -747,13 +747,14 @@ const HORA_INICIO_ASIS = { h: 7,  m: 0  }; // 07:00
 const HORA_FIN_PUNTUAL = { h: 8, m: 20 }; // 08:20 — después de esta hora es Tardanza
 
 function calcularEstadoAsistencia(ahora = new Date()) {
-  const diaSemana = ahora.getDay(); // 0=Dom…6=Sáb
+  // Convertir a hora local de Lima (UTC-5) para comparar correctamente
+  const localLima = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  const diaSemana = localLima.getDay(); // 0=Dom…6=Sáb
   if (!DIAS_ACTIVOS.includes(diaSemana)) {
     return { valido: false, razon: 'El registro de asistencia solo está activo de lunes a sábado.' };
   }
-  // Sin restricción de hora: cualquier momento Lun-Sáb es válido
-  const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
-  const minFin       = HORA_FIN_PUNTUAL.h * 60 + HORA_FIN_PUNTUAL.m; // 500
+  const minutosAhora = localLima.getHours() * 60 + localLima.getMinutes();
+  const minFin       = HORA_FIN_PUNTUAL.h * 60 + HORA_FIN_PUNTUAL.m; // 500 (08:20)
   const estado = minutosAhora <= minFin ? 'Presente' : 'Tardanza';
   return { valido: true, estado };
 }
