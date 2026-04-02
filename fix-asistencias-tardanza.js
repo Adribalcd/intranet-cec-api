@@ -39,7 +39,7 @@ async function main() {
   // Usamos SQL directo para filtrar por hora dentro de fecha_hora
   const [registros] = await sequelize.query(`
     SELECT id, alumno_id, fecha_hora, estado, observaciones
-    FROM asistencias
+    FROM asistencia
     WHERE estado = 'Tardanza'
       AND DAYOFWEEK(fecha_hora) BETWEEN 2 AND 7
       AND (HOUR(fecha_hora) * 60 + MINUTE(fecha_hora)) >= :minInicio
@@ -73,7 +73,7 @@ async function main() {
   // Aplicar corrección
   const ids = registros.map(r => r.id);
   const [rowsUpdated] = await sequelize.query(`
-    UPDATE asistencias
+    UPDATE asistencia
     SET estado = 'Presente',
         observaciones = NULL
     WHERE id IN (:ids)
