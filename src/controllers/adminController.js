@@ -742,7 +742,7 @@ exports.cambiarCicloAlumno = async (req, res) => {
 // ─── Configuración de horario de asistencia ────────────────────
 // Activo: Lunes a Sábado (0=Dom, 1=Lun...6=Sáb)
 const DIAS_ACTIVOS = [1, 2, 3, 4, 5, 6]; // Lun–Sáb
-// Ventana "a tiempo": 07:00:00 → 08:15:00
+// Ventana "a tiempo": 07:00:00 → 08:20:00
 const HORA_INICIO_ASIS = { h: 7,  m: 0  }; // 07:00
 const HORA_FIN_PUNTUAL = { h: 8, m: 20 }; // 08:20 — después de esta hora es Tardanza
 
@@ -2353,7 +2353,7 @@ exports.getConfigAsistencia = (_req, res) => {
   res.json({
     diasActivos: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
     horaInicio: '07:00',
-    horaFinPuntual: '08:15',
+    horaFinPuntual: '08:20',
     horaLimite: '23:59',
   });
 };
