@@ -135,6 +135,7 @@ exports.asistencia = async (req, res) => {
         estado: r.estado,
         hora: r.fecha_hora,
         observaciones: r.observaciones,
+        turno: r.turno || 'mañana',
       }))
     );
   } catch (error) {

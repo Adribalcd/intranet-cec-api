@@ -220,7 +220,7 @@ exports.getCiclos = async (req, res) => {
 
 exports.createCiclo = async (req, res) => {
   try {
-    const { nombre, fechaInicio, duracion, fechaFin } = req.body;
+    const { nombre, fechaInicio, duracion, fechaFin, tieneTarde, horaTardeInicio, horaTardePuntual } = req.body;
     let fin = fechaFin;
     if (!fin && fechaInicio && duracion) {
       const inicio = new Date(fechaInicio);
@@ -231,6 +231,9 @@ exports.createCiclo = async (req, res) => {
       nombres: nombre,
       fecha_inicio: fechaInicio,
       fecha_fin: fin,
+      tiene_tarde: tieneTarde ?? false,
+      hora_tarde_inicio: horaTardeInicio || null,
+      hora_tarde_puntual: horaTardePuntual || null,
     });
     res.status(201).json(ciclo);
   } catch (error) {
@@ -241,7 +244,7 @@ exports.createCiclo = async (req, res) => {
 exports.updateCiclo = async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, fechaInicio, duracion, fechaFin } = req.body;
+    const { nombre, fechaInicio, duracion, fechaFin, tieneTarde, horaTardeInicio, horaTardePuntual } = req.body;
     const ciclo = await Ciclo.findByPk(id);
     if (!ciclo) return res.status(404).json({ error: 'Ciclo no encontrado' });
 
@@ -252,11 +255,16 @@ exports.updateCiclo = async (req, res) => {
       fin = inicio;
     }
 
-    await ciclo.update({
+    const updateData = {
       nombres: nombre || ciclo.nombres,
       fecha_inicio: fechaInicio || ciclo.fecha_inicio,
       fecha_fin: fin || ciclo.fecha_fin,
-    });
+    };
+    if (tieneTarde !== undefined) updateData.tiene_tarde = tieneTarde;
+    if (horaTardeInicio !== undefined) updateData.hora_tarde_inicio = horaTardeInicio || null;
+    if (horaTardePuntual !== undefined) updateData.hora_tarde_puntual = horaTardePuntual || null;
+
+    await ciclo.update(updateData);
     res.json(ciclo);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -742,21 +750,41 @@ exports.cambiarCicloAlumno = async (req, res) => {
 // ─── Configuración de horario de asistencia ────────────────────
 // Activo: Lunes a Sábado (0=Dom, 1=Lun...6=Sáb)
 const DIAS_ACTIVOS = [1, 2, 3, 4, 5, 6]; // Lun–Sáb
-// Ventana "a tiempo": 07:00:00 → 08:15:00
-const HORA_INICIO_ASIS = { h: 7,  m: 0  }; // 07:00
-const HORA_FIN_PUNTUAL = { h: 8, m: 15 }; // 08:15 — después de esta hora es Tardanza
+const HORA_FIN_PUNTUAL_MANANA = { h: 8, m: 15 }; // 08:15 — puntual mañana
 
-function calcularEstadoAsistencia(ahora = new Date()) {
-  // Convertir a hora local de Lima (UTC-5) para comparar correctamente
+// Determina estado y turno según hora actual y config del ciclo.
+// cicloConfig: { tiene_tarde, hora_tarde_inicio, hora_tarde_puntual }
+function calcularEstadoYTurno(ahora = new Date(), cicloConfig = {}) {
   const localLima = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Lima' }));
-  const diaSemana = localLima.getDay(); // 0=Dom…6=Sáb
+  const diaSemana = localLima.getDay();
   if (!DIAS_ACTIVOS.includes(diaSemana)) {
     return { valido: false, razon: 'El registro de asistencia solo está activo de lunes a sábado.' };
   }
   const minutosAhora = localLima.getHours() * 60 + localLima.getMinutes();
-  const minFin       = HORA_FIN_PUNTUAL.h * 60 + HORA_FIN_PUNTUAL.m; // 495 (08:15)
+
+  // Verificar si es turno tarde
+  if (cicloConfig.tiene_tarde && cicloConfig.hora_tarde_inicio) {
+    const [thh, tmm] = cicloConfig.hora_tarde_inicio.split(':').map(Number);
+    const minTardeInicio = thh * 60 + tmm;
+    if (minutosAhora >= minTardeInicio) {
+      let estadoTarde = 'Presente';
+      if (cicloConfig.hora_tarde_puntual) {
+        const [phh, pmm] = cicloConfig.hora_tarde_puntual.split(':').map(Number);
+        estadoTarde = minutosAhora <= phh * 60 + pmm ? 'Presente' : 'Tardanza';
+      }
+      return { valido: true, estado: estadoTarde, turno: 'tarde' };
+    }
+  }
+
+  // Turno mañana
+  const minFin = HORA_FIN_PUNTUAL_MANANA.h * 60 + HORA_FIN_PUNTUAL_MANANA.m;
   const estado = minutosAhora <= minFin ? 'Presente' : 'Tardanza';
-  return { valido: true, estado };
+  return { valido: true, estado, turno: 'mañana' };
+}
+
+// Alias para compatibilidad con getConfigAsistencia
+function calcularEstadoAsistencia(ahora = new Date()) {
+  return calcularEstadoYTurno(ahora, {});
 }
 
 exports.registrarAsistencia = async (req, res) => {
@@ -769,7 +797,7 @@ exports.registrarAsistencia = async (req, res) => {
     });
     if (!alumno) return res.status(404).json({ error: 'Alumno no encontrado' });
 
-    // Buscar matrícula más reciente
+    // Buscar matrícula más reciente con config del ciclo
     const matricula = await Matricula.findOne({
       where: { alumno_id: alumno.id },
       include: [{ model: Ciclo }],
@@ -777,12 +805,19 @@ exports.registrarAsistencia = async (req, res) => {
     });
     if (!matricula) return res.status(400).json({ error: 'Alumno sin matrícula activa' });
 
-    // Calcular estado según hora actual
+    const ciclo = matricula.Ciclo;
+    const cicloConfig = {
+      tiene_tarde:        ciclo?.tiene_tarde ?? false,
+      hora_tarde_inicio:  ciclo?.hora_tarde_inicio ?? null,
+      hora_tarde_puntual: ciclo?.hora_tarde_puntual ?? null,
+    };
+
+    // Calcular estado y turno según hora actual y config del ciclo
     const ahora = new Date();
-    const { valido, razon, estado } = calcularEstadoAsistencia(ahora);
+    const { valido, razon, estado, turno } = calcularEstadoYTurno(ahora, cicloConfig);
     if (!valido) return res.status(400).json({ error: razon });
 
-    // Verificar registro único por día
+    // Verificar registro único por día Y turno (permite uno mañana + uno tarde)
     const hoyInicio = new Date(ahora); hoyInicio.setHours(0, 0, 0, 0);
     const hoyFin    = new Date(ahora); hoyFin.setHours(23, 59, 59, 999);
     const existente = await Asistencia.findOne({
@@ -791,21 +826,31 @@ exports.registrarAsistencia = async (req, res) => {
         ciclo_id:  matricula.ciclo_id,
         fecha_hora: { [Op.between]: [hoyInicio, hoyFin] },
         estado:    { [Op.ne]: 'Inhabilitado' },
+        turno,
       },
     });
     if (existente) {
+      const turnoLabel = turno === 'tarde' ? 'tarde' : 'mañana';
       return res.status(409).json({
-        error: `El alumno ya tiene asistencia registrada hoy (${existente.estado})`,
+        error: `El alumno ya tiene asistencia del turno ${turnoLabel} registrada hoy (${existente.estado})`,
         estado: existente.estado,
+        turno,
       });
     }
+
+    const observacion = estado === 'Tardanza'
+      ? turno === 'tarde'
+        ? `Llegó tarde al turno tarde (después de ${cicloConfig.hora_tarde_puntual || 'la hora límite'})`
+        : 'Llegó fuera del horario puntual (07:00–08:15)'
+      : null;
 
     const asistencia = await Asistencia.create({
       alumno_id:     alumno.id,
       ciclo_id:      matricula.ciclo_id,
       fecha_hora:    ahora,
       estado,
-      observaciones: estado === 'Tardanza' ? 'Llegó fuera del horario puntual (07:00–08:15)' : null,
+      turno,
+      observaciones: observacion,
     });
 
     const alumnoData = alumno.toJSON();
@@ -814,12 +859,13 @@ exports.registrarAsistencia = async (req, res) => {
     res.status(201).json({
       asistencia,
       estado,
+      turno,
       alumno: {
         nombres:   alumnoData.nombres,
         apellidos: alumnoData.apellidos,
         codigo:    alumnoData.codigo,
         foto_url:  alumnoData.foto_url,
-        ciclo:     matricula.Ciclo ? { id: matricula.Ciclo.id, nombres: matricula.Ciclo.nombres } : null,
+        ciclo:     ciclo ? { id: ciclo.id, nombres: ciclo.nombres } : null,
       },
     });
   } catch (error) {
@@ -1217,16 +1263,14 @@ exports.listadoAsistencia = async (req, res) => {
     const inicioDia = new Date(`${fecha}T00:00:00`);
     const finDia = new Date(`${fecha}T23:59:59`);
 
-    // Obtener todos los alumnos matriculados en el ciclo
+    const ciclo = await Ciclo.findByPk(cicloId);
+
     const matriculas = await Matricula.findAll({
       where: { ciclo_id: cicloId },
-      include: [{
-        model: Alumno,
-        attributes: ['id', 'codigo', 'nombres', 'apellidos'],
-      }],
+      include: [{ model: Alumno, attributes: ['id', 'codigo', 'nombres', 'apellidos'] }],
+      order: [[Alumno, 'apellidos', 'ASC']],
     });
 
-    // Obtener registros de asistencia del día
     const asistencias = await Asistencia.findAll({
       where: {
         ciclo_id: cicloId,
@@ -1234,25 +1278,47 @@ exports.listadoAsistencia = async (req, res) => {
       },
     });
 
+    // Agrupar por alumno y turno
     const asistenciaMap = {};
     asistencias.forEach((a) => {
-      asistenciaMap[a.alumno_id] = {
+      if (!asistenciaMap[a.alumno_id]) asistenciaMap[a.alumno_id] = {};
+      const t = a.turno || 'mañana';
+      asistenciaMap[a.alumno_id][t] = {
         estado: a.estado,
         observaciones: a.observaciones,
         hora: a.fecha_hora,
+        turno: t,
       };
     });
 
-    const listado = matriculas.map((m) => ({
-      codigo: m.Alumno.codigo,
-      nombres: m.Alumno.nombres,
-      apellidos: m.Alumno.apellidos,
-      estado: asistenciaMap[m.Alumno.id]?.estado || 'Sin registro',
-      observaciones: asistenciaMap[m.Alumno.id]?.observaciones || '',
-      hora: asistenciaMap[m.Alumno.id]?.hora || null,
-    }));
+    const listado = matriculas.map((m) => {
+      const registros = asistenciaMap[m.Alumno.id] || {};
+      const manana = registros['mañana'] || null;
+      const tarde  = registros['tarde']  || null;
+      return {
+        codigo: m.Alumno.codigo,
+        nombres: m.Alumno.nombres,
+        apellidos: m.Alumno.apellidos,
+        // Turno mañana (campo principal para compatibilidad)
+        estado: manana?.estado || 'Sin registro',
+        observaciones: manana?.observaciones || '',
+        hora: manana?.hora || null,
+        turno: 'mañana',
+        // Turno tarde (null si no aplica o no registrado)
+        tarde: tarde ? {
+          estado: tarde.estado,
+          hora: tarde.hora,
+          observaciones: tarde.observaciones,
+        } : (ciclo?.tiene_tarde ? { estado: 'Sin registro', hora: null, observaciones: '' } : null),
+      };
+    });
 
-    res.json({ fecha, cicloId: parseInt(cicloId), listado });
+    res.json({
+      fecha,
+      cicloId: parseInt(cicloId),
+      tieneTarde: ciclo?.tiene_tarde ?? false,
+      listado,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1758,13 +1824,15 @@ exports.matriculaMasivaExcel = async (req, res) => {
 
 exports.cierreDia = async (req, res) => {
   try {
-    const { cicloId, fecha } = req.body;
+    const { cicloId, fecha, turno } = req.body; // turno: 'mañana' | 'tarde' | undefined (ambos)
     if (!cicloId) return res.status(400).json({ error: 'Se requiere cicloId' });
 
     const fechaTarget = fecha ? new Date(fecha) : new Date();
     const inicioDia = new Date(fechaTarget); inicioDia.setHours(0, 0, 0, 0);
     const finDia    = new Date(fechaTarget); finDia.setHours(23, 59, 59, 999);
     const fechaStr  = fechaTarget.toISOString().split('T')[0];
+
+    const ciclo = await Ciclo.findByPk(cicloId);
 
     // Verificar si el día está inhabilitado
     const diaInhabilitado = await Asistencia.findOne({
@@ -1778,36 +1846,47 @@ exports.cierreDia = async (req, res) => {
       return res.json({ ok: true, marcados: 0, mensaje: 'El día está inhabilitado, no se aplica cierre.' });
     }
 
-    // Alumnos matriculados en el ciclo
     const matriculas = await Matricula.findAll({ where: { ciclo_id: cicloId } });
     const alumnoIds = matriculas.map((m) => m.alumno_id);
 
-    // Quiénes ya tienen registro hoy
-    const conRegistro = await Asistencia.findAll({
-      where: {
-        alumno_id: { [Op.in]: alumnoIds },
-        ciclo_id: cicloId,
-        fecha_hora: { [Op.between]: [inicioDia, finDia] },
-      },
-      attributes: ['alumno_id'],
-    });
-    const idsConRegistro = new Set(conRegistro.map((a) => a.alumno_id));
+    // Determinar turnos a cerrar
+    const turnosCerrar = [];
+    const cerrarManana = !turno || turno === 'mañana';
+    const cerrarTarde  = (turno === 'tarde') || (!turno && ciclo?.tiene_tarde);
 
-    // Insertar FALTO para los que no tienen registro
-    const ausentesIds = alumnoIds.filter((id) => !idsConRegistro.has(id));
+    if (cerrarManana) turnosCerrar.push('mañana');
+    if (cerrarTarde)  turnosCerrar.push('tarde');
 
-    if (ausentesIds.length > 0) {
-      const registrosFalto = ausentesIds.map((alumno_id) => ({
-        alumno_id,
-        ciclo_id: parseInt(cicloId),
-        fecha_hora: fechaTarget,
-        estado: 'Falta',
-        observaciones: `Cierre de día ${fechaStr}`,
-      }));
-      await Asistencia.bulkCreate(registrosFalto);
+    let totalMarcados = 0;
+
+    for (const turnoActual of turnosCerrar) {
+      const conRegistro = await Asistencia.findAll({
+        where: {
+          alumno_id: { [Op.in]: alumnoIds },
+          ciclo_id: cicloId,
+          fecha_hora: { [Op.between]: [inicioDia, finDia] },
+          turno: turnoActual,
+        },
+        attributes: ['alumno_id'],
+      });
+      const idsConRegistro = new Set(conRegistro.map((a) => a.alumno_id));
+      const ausentesIds = alumnoIds.filter((id) => !idsConRegistro.has(id));
+
+      if (ausentesIds.length > 0) {
+        const registros = ausentesIds.map((alumno_id) => ({
+          alumno_id,
+          ciclo_id: parseInt(cicloId),
+          fecha_hora: fechaTarget,
+          estado: 'Falta',
+          turno: turnoActual,
+          observaciones: `Cierre de día ${fechaStr} (${turnoActual})`,
+        }));
+        await Asistencia.bulkCreate(registros);
+        totalMarcados += ausentesIds.length;
+      }
     }
 
-    res.json({ ok: true, marcados: ausentesIds.length, fecha: fechaStr });
+    res.json({ ok: true, marcados: totalMarcados, fecha: fechaStr });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

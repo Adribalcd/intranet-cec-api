@@ -8,6 +8,7 @@ const Asistencia = sequelize.define('Asistencia', {
   fecha_hora: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   estado: { type: DataTypes.STRING(20) },
   observaciones: { type: DataTypes.STRING(255) },
+  turno: { type: DataTypes.STRING(10), defaultValue: 'mañana' }, // 'mañana' | 'tarde'
 }, { tableName: 'asistencia', timestamps: false });
 
 module.exports = Asistencia;
